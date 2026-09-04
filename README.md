@@ -1,8 +1,8 @@
 # Munkaidő-nyilvántartó
 
-Verzió: **1.0.1**
+Verzió: **1.1.0**
 
-Az 1.0.1-es verzió a regisztrációnál jól látható, magyar mezőhibákat ad, megőrzi a korábban beírt nevet és e-mail-címet, és elküldés közben egyértelmű állapotot mutat. Így mobilon sem tűnik úgy, hogy a „Fiók létrehozása” gomb nem működik.
+Az 1.1.0-s verzióban az admin módosíthatja a felhasználónevet és a megjelenített nevet, valamint megerősítés után teljes felhasználói fiókot is törölhet. A törlés a fiókhoz tartozó munkaidő-, beosztás- és szabadságadatokat is eltávolítja.
 
 Mobiltelefonon és asztali gépen használható, Dockerben futó munkaidő-nyilvántartó.
 
@@ -18,6 +18,7 @@ Fő funkciók:
 - éves szabadságkeret;
 - magyar munkaszüneti napok és munkanap-áthelyezések;
 - adminisztrátori jelszó-visszaállítás;
+- adminisztrátori felhasználónév-módosítás és teljes fióktörlés;
 - Excel-export;
 - az átadott 2026-os Excel-adatok automatikus, egyszeri importálása.
 
@@ -26,7 +27,6 @@ Fő funkciók:
 | Szerepkör | Felhasználónév | Jelszó |
 |---|---|---|
 | Admin | `admin` | `admin` |
-| Importált adatok tulajdonosa | `sora.luna@gmail.com` | `Almafa.123` |
 
 Az admin minden felhasználó jelszavát az `Almafa.123` alapértelmezett jelszóra tudja visszaállítani. Mindenki megváltoztathatja a saját jelszavát.
 
@@ -156,7 +156,9 @@ Az adatbázis helye:
 ./data/munkaido.db
 ```
 
-Az első induláskor a `seed/Kimutatas_a_ledolgozott_munkaidorol.xlsx` tartalma egyszer kerül be a `sora.luna@gmail.com` felhasználóhoz. Az alkalmazás megjegyzi az importálás tényét, ezért újraindításkor nem duplikálja az adatokat.
+Az első induláskor a `seed/Kimutatas_a_ledolgozott_munkaidorol.xlsx` tartalma egyszer kerül az adatbázisba. Az alkalmazás megjegyzi az importálás tényét, ezért újraindításkor nem duplikálja az adatokat.
+
+Az adminfelületen törölt fiókot az alkalmazás újraindításkor sem hozza létre ismét.
 
 A 2026. július 27-i hibás Excel-sort szándékosan érkezés és távozás nélkül importálja. A felületen „Hiányzó adat” jelzést kap, és addig nem módosítja az egyenleget, amíg kézzel ki nem javítják.
 
