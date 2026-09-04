@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Felhasználó szerkesztése · Munkaidő{% endblock %}
+{% block content %}
+<section class="card narrow-card">
+  <p class="eyebrow">Adminisztráció</p>
+  <h1>Felhasználó szerkesztése</h1>
+  <p class="muted">A felhasználónév módosítása után ezzel az új névvel lehet bejelentkezni.</p>
+  <form method="post" class="stack-form" novalidate>
+    <label> Megjelenített név
+      <input name="display_name" value="{{ form_data['display_name'] }}" maxlength="100" autocomplete="name" class="{{ 'input-error' if errors.get('display_name') else '' }}">
+      {% if errors.get('display_name') %}<small class="field-error">{{ errors['display_name'] }}</small>{% endif %}
+    </label>
+    <label> Felhasználónév / e-mail
+      <input name="login" value="{{ form_data['login'] }}" maxlength="254" autocomplete="username" class="{{ 'input-error' if errors.get('login') else '' }}">
+      {% if errors.get('login') %}<small class="field-error">{{ errors['login'] }}</small>{% endif %}
+    </label>
+    <button class="button primary full" type="submit">Módosítások mentése</button>
+  </form>
+  <a class="back-link" href="{{ url_for('admin_users') }}">← Vissza a felhasználókhoz</a>
+</section>
+{% endblock %}
