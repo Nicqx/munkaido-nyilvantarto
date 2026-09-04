@@ -30,6 +30,32 @@ class AppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Napi rögzítés".encode(), response.data)
 
+    def test_registration_creates_user_and_admin_can_see_it(self):
+        response = self.client.post(
+            "/register",
+            data={"display_name": "Új Tesztelő", "email": "uj.tesztelo@example.hu", "password": "Teszt.123"},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("A regisztráció elkészült".encode(), response.data)
+        login_response = self.login("uj.tesztelo@example.hu", "Teszt.123")
+        self.assertIn("Napi rögzítés".encode(), login_response.data)
+        self.client.post("/logout")
+        self.login("admin", "admin")
+        admin_page = self.client.get("/admin/users")
+        self.assertIn("uj.tesztelo@example.hu".encode(), admin_page.data)
+
+    def test_registration_validation_is_visible_and_preserves_email(self):
+        response = self.client.post(
+            "/register",
+            data={"display_name": "Teszt", "email": "hibas-email", "password": "123"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("A fiók még nem jött létre".encode(), response.data)
+        self.assertIn("Adj meg egy használható e-mail-címet".encode(), response.data)
+        self.assertIn("A jelszó legalább 4 karakter legyen".encode(), response.data)
+        self.assertIn(b'value="hibas-email"', response.data)
+
     def test_complete_day_and_break_are_calculated(self):
         self.login()
         response = self.client.post(

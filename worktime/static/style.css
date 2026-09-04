@@ -70,6 +70,11 @@ input, textarea, select {
 }
 textarea { resize: vertical; }
 input:focus, textarea:focus, select:focus { outline: 3px solid rgba(36,90,115,.16); border-color: var(--navy-2); }
+.input-error { border-color: var(--red); background: #fffafa; }
+.field-hint { color: var(--muted); font-size: .78rem; font-weight: 500; }
+.field-error { color: var(--red); font-size: .82rem; font-weight: 750; }
+.form-error { margin-top: 14px; padding: 12px; border: 1px solid #f5b6b0; border-radius: 10px; background: var(--red-soft); }
+.button:disabled { cursor: wait; opacity: .72; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .date-jump { display: flex; align-items: center; gap: 10px; }
 .date-jump label { white-space: nowrap; }

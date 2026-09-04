@@ -57,6 +57,15 @@
       draw();
       setInterval(draw, 1000);
     });
+    document.querySelectorAll('[data-submit-form]').forEach((form) => {
+      form.addEventListener('submit', () => {
+        const button = form.querySelector('[data-submit-button]');
+        if (button) {
+          button.disabled = true;
+          button.textContent = 'Fiók létrehozása…';
+        }
+      });
+    });
   </script>
   {% block scripts %}{% endblock %}
 </body>

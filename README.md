@@ -1,5 +1,9 @@
 # Munkaidő-nyilvántartó
 
+Verzió: **1.0.1**
+
+Az 1.0.1-es verzió a regisztrációnál jól látható, magyar mezőhibákat ad, megőrzi a korábban beírt nevet és e-mail-címet, és elküldés közben egyértelmű állapotot mutat. Így mobilon sem tűnik úgy, hogy a „Fiók létrehozása” gomb nem működik.
+
 Mobiltelefonon és asztali gépen használható, Dockerben futó munkaidő-nyilvántartó.
 
 Fő funkciók:

@@ -3,17 +3,21 @@
 {% block content %}
 <section class="auth-card card">
   <h1>Regisztráció</h1>
-  <form method="post" class="stack-form">
+  <p class="muted">Minden mező kitöltése után a rendszer jól láthatóan jelzi, ha valamit javítani kell.</p>
+  {% if errors.get('form') %}<div class="field-error form-error" role="alert">{{ errors['form'] }}</div>{% endif %}
+  <form method="post" class="stack-form" novalidate data-submit-form>
     <label> Név
-      <input name="display_name" autocomplete="name">
+      <input name="display_name" autocomplete="name" value="{{ form_data.get('display_name', '') }}">
     </label>
     <label> E-mail-cím
-      <input type="email" name="email" autocomplete="email" required>
+      <input type="email" name="email" autocomplete="email" inputmode="email" value="{{ form_data.get('email', '') }}" class="{{ 'input-error' if errors.get('email') else '' }}" aria-describedby="email-help">
+      <small id="email-help" class="{{ 'field-error' if errors.get('email') else 'field-hint' }}">{{ errors.get('email', 'Például: nev@pelda.hu') }}</small>
     </label>
     <label> Jelszó
-      <input type="password" name="password" minlength="4" autocomplete="new-password" required>
+      <input type="password" name="password" autocomplete="new-password" class="{{ 'input-error' if errors.get('password') else '' }}" aria-describedby="password-help">
+      <small id="password-help" class="{{ 'field-error' if errors.get('password') else 'field-hint' }}">{{ errors.get('password', 'Legalább 4 karakter.') }}</small>
     </label>
-    <button class="button primary full" type="submit">Fiók létrehozása</button>
+    <button class="button primary full" type="submit" data-submit-button>Fiók létrehozása</button>
   </form>
   <p class="auth-link"><a href="{{ url_for('login') }}">Vissza a belépéshez</a></p>
 </section>
