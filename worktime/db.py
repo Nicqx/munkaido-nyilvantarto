@@ -11,6 +11,9 @@ from werkzeug.security import generate_password_hash
 from .core import DEFAULT_SCHEDULE, ensure_calendar_year
 
 
+SEED_USER_META_KEY = "seed_user_initialized_v1"
+
+
 def connect_db(path: str) -> sqlite3.Connection:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30)
@@ -72,22 +75,47 @@ def init_database(app) -> None:
     schema_path = Path(__file__).with_name("schema.sql")
     conn.executescript(schema_path.read_text(encoding="utf-8"))
     ensure_user(conn, "admin", "Adminisztrátor", "admin", is_admin=True)
-    seed_user_id = ensure_user(
-        conn,
-        "sora.luna@gmail.com",
-        "Kovács Anna",
-        "Almafa.123",
-        is_admin=False,
-    )
+    seed_user = conn.execute(
+        "SELECT id FROM users WHERE login = ?", ("sora.luna@gmail.com",)
+    ).fetchone()
+    seed_user_id = int(seed_user["id"]) if seed_user else None
+    seed_user_initialized = conn.execute(
+        "SELECT 1 FROM app_meta WHERE key = ?", (SEED_USER_META_KEY,)
+    ).fetchone()
+    if not seed_user_initialized:
+        if seed_user_id is None:
+            seed_user_id = ensure_user(
+                conn,
+                "sora.luna@gmail.com",
+                "Kovács Anna",
+                "Almafa.123",
+                is_admin=False,
+            )
+        conn.execute(
+            "INSERT INTO app_meta(key, value) VALUES (?, ?)",
+            (SEED_USER_META_KEY, "1"),
+        )
     ensure_calendar_year(conn, datetime.now().year)
     ensure_calendar_year(conn, 2026)
     conn.commit()
 
     if app.config.get("IMPORT_SEED_EXCEL", True):
-        from .importer import import_seed_workbook
+        from .importer import SEED_META_KEY, import_seed_workbook
 
-        import_seed_workbook(conn, seed_user_id, app.config["SEED_EXCEL_PATH"])
-        conn.commit()
+        already_imported = conn.execute(
+            "SELECT 1 FROM app_meta WHERE key = ?", (SEED_META_KEY,)
+        ).fetchone()
+        if not already_imported:
+            if seed_user_id is None:
+                seed_user_id = ensure_user(
+                    conn,
+                    "sora.luna@gmail.com",
+                    "Kovács Anna",
+                    "Almafa.123",
+                    is_admin=False,
+                )
+            import_seed_workbook(conn, seed_user_id, app.config["SEED_EXCEL_PATH"])
+            conn.commit()
     conn.close()
 
 
