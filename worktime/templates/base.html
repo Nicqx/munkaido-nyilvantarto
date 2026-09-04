@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#173f5f">
+  <title>{% block title %}Munkaidő{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('dashboard') if g.user else url_for('login') }}">Munkaidő</a>
+    {% if g.user %}
+      <button class="nav-toggle" type="button" aria-label="Menü" data-nav-toggle>☰</button>
+      <nav class="nav" data-nav>
+        <a href="{{ url_for('dashboard') }}">Mai nap</a>
+        <a href="{{ url_for('history') }}">Előzmények</a>
+        <a href="{{ url_for('stats') }}">Statisztika</a>
+        <a href="{{ url_for('leave') }}">Szabadság</a>
+        <a href="{{ url_for('change_password') }}">Jelszó</a>
+        {% if g.user['is_admin'] %}
+          <a href="{{ url_for('admin_users') }}">Admin</a>
+        {% endif %}
+        <form action="{{ url_for('logout') }}" method="post">
+          <button class="link-button" type="submit">Kilépés</button>
+        </form>
+      </nav>
+    {% endif %}
+  </header>
+
+  <main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack" role="status">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    const toggle = document.querySelector('[data-nav-toggle]');
+    const nav = document.querySelector('[data-nav]');
+    if (toggle && nav) toggle.addEventListener('click', () => nav.classList.toggle('open'));
+    document.querySelectorAll('[data-live-seconds]').forEach((element) => {
+      let value = Number(element.dataset.liveSeconds || 0);
+      const draw = () => {
+        const h = String(Math.floor(value / 3600)).padStart(2, '0');
+        const m = String(Math.floor(value % 3600 / 60)).padStart(2, '0');
+        const s = String(value % 60).padStart(2, '0');
+        element.textContent = `${h}:${m}:${s}`;
+        value += 1;
+      };
+      draw();
+      setInterval(draw, 1000);
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Statisztika · Munkaidő{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">Éves áttekintés</p><h1>{{ summary.year }}. évi statisztika</h1></div>
+  <form method="get" class="year-form"><input type="number" min="2000" max="2100" name="year" value="{{ summary.year }}"><button class="button ghost">Megnyitás</button></form>
+</div>
+<section class="kpi-grid stats-kpis">
+  <article class="kpi"><span>Éves egyenleg</span><strong class="{{ 'positive' if summary.balance >= 0 else 'negative' }}">{{ summary.balance|signed_duration }}</strong></article>
+  <article class="kpi"><span>Szabadságkeret</span><strong>{{ leave_data.allowance if leave_data.allowance is not none else 'Nincs megadva' }}{% if leave_data.allowance is not none %} nap{% endif %}</strong></article>
+  <article class="kpi"><span>Kivett / tervezett</span><strong>{{ leave_data.taken }} / {{ leave_data.planned }} nap</strong></article>
+  <article class="kpi"><span>Fennmaradó</span><strong>{{ leave_data.remaining if leave_data.remaining is not none else '—' }}{% if leave_data.remaining is not none %} nap{% endif %}</strong></article>
+</section>
+
+<div class="stats-grid">
+  <section class="card chart-card">
+    <div class="section-heading"><div><p class="eyebrow">Havi eltérések</p><h2>Plusz és mínusz idő</h2></div></div>
+    <div class="balance-chart" aria-label="Havi egyenlegek diagramja">
+      {% for item in summary.months %}
+        <div class="chart-row">
+          <span>{{ item.name[:3] }}</span>
+          <div class="chart-track">
+            <i class="zero-line"></i>
+            {% if item.balance >= 0 %}<i class="bar positive-bar" style="left:50%;width:{{ item.bar_percent }}%"></i>
+            {% else %}<i class="bar negative-bar" style="right:50%;width:{{ item.bar_percent }}%"></i>{% endif %}
+          </div>
+          <strong class="{{ 'positive' if item.balance >= 0 else 'negative' }}">{{ item.balance|signed_duration }}</strong>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card export-card">
+    <p class="eyebrow">Letöltés</p><h2>Excel-export</h2>
+    <p class="muted">A részletes napok, havi összesítők és az éves szabadságadatok egy fájlban.</p>
+    <a class="button primary full" href="{{ url_for('export_xlsx', year=summary.year) }}">{{ summary.year }} letöltése</a>
+    <a class="button ghost full" href="{{ url_for('export_xlsx', year='all') }}">Minden adat letöltése</a>
+  </section>
+</div>
+
+<section class="card table-card">
+  <table>
+    <thead><tr><th>Hónap</th><th>Ledolgozott</th><th>Elvárt</th><th>Havi eltérés</th><th>Göngyölített</th><th>Lezárt nap</th></tr></thead>
+    <tbody>{% for item in summary.months %}<tr><td><strong>{{ item.name }}</strong></td><td>{{ item.worked|duration }}</td><td>{{ item.expected|duration }}</td><td class="{{ 'positive' if item.balance >= 0 else 'negative' }}">{{ item.balance|signed_duration }}</td><td>{{ item.cumulative|signed_duration }}</td><td>{{ item.days }}</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

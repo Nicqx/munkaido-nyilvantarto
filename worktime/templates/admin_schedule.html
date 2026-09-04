@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Munkaidő-beosztás · Munkaidő{% endblock %}
+{% block content %}
+<section class="card narrow-card">
+  <p class="eyebrow">{{ selected_user['login'] }}</p><h1>Heti munkaidő</h1>
+  <p class="muted">Az áthelyezett munkanap az eredeti nap itt megadott munkaidejét örökli.</p>
+  <form method="post" class="stack-form">
+    {% for item in schedule %}<label>{{ item.name }}<input name="day_{{ item.weekday }}" value="{{ item.seconds|duration }}" inputmode="numeric" required></label>{% endfor %}
+    <button class="button primary" type="submit">Beosztás mentése</button>
+  </form>
+  <a class="back-link" href="{{ url_for('admin_users') }}">← Vissza a felhasználókhoz</a>
+</section>
+{% endblock %}

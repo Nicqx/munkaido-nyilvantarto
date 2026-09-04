@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Munkanaptár · Munkaidő{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Adminisztráció</p><h1>{{ year }}. évi munkanaptár</h1></div><form method="get" class="year-form"><input type="number" name="year" min="2000" max="2100" value="{{ year }}"><button class="button ghost">Megnyitás</button></form></div>
+<div class="two-column calendar-layout">
+  <section class="card">
+    <h2>Nap hozzáadása vagy módosítása</h2>
+    <form method="post" class="stack-form">
+      <input type="hidden" name="year" value="{{ year }}">
+      <label>Dátum<input type="date" name="work_date" required></label>
+      <label>Típus<select name="kind"><option value="holiday">Munkaszüneti nap</option><option value="rest_day">Áthelyezett pihenőnap</option><option value="transferred_workday">Áthelyezett munkanap</option><option value="normal">Normál napként kezelés</option></select></label>
+      <label>Eredeti nap áthelyezett munkanapnál<input type="date" name="source_date"></label>
+      <label>Megnevezés<input name="label" placeholder="Például: augusztus 21. ledolgozása"></label>
+      <button class="button primary" type="submit">Munkanaptár mentése</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Beállított napok</h2>
+    <ul class="clean-list calendar-list">
+    {% for row in rows %}<li><div><strong>{{ row['work_date'] }}</strong><span class="muted block">{{ row['label'] }}</span></div><span>{{ {'holiday':'Ünnep','rest_day':'Pihenőnap','transferred_workday':'Munkanap','normal':'Normál nap'}[row['kind']] }}</span></li>{% else %}<li class="muted">Nincs egyedi munkanaptári nap.</li>{% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

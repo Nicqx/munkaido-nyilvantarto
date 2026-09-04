@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Szabadság · Munkaidő{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Éves keret</p><h1>Szabadság – {{ year }}</h1></div><form method="get" class="year-form"><input type="number" name="year" min="2000" max="2100" value="{{ year }}"><button class="button ghost">Megnyitás</button></form></div>
+<section class="kpi-grid">
+  <article class="kpi"><span>Éves keret</span><strong>{{ leave_data.allowance if leave_data.allowance is not none else 'Nincs megadva' }}{% if leave_data.allowance is not none %} nap{% endif %}</strong></article>
+  <article class="kpi"><span>Eddig kivett</span><strong>{{ leave_data.taken }} nap</strong></article>
+  <article class="kpi"><span>Előre betervezett</span><strong>{{ leave_data.planned }} nap</strong></article>
+  <article class="kpi"><span>Fennmaradó</span><strong>{{ leave_data.remaining if leave_data.remaining is not none else '—' }}{% if leave_data.remaining is not none %} nap{% endif %}</strong></article>
+</section>
+<div class="two-column">
+  <section class="card">
+    <h2>Keret beállítása</h2>
+    <form method="post" class="stack-form">
+      <input type="hidden" name="year" value="{{ year }}">
+      <label>Éves szabadságkeret napban
+        <input type="number" min="0" step="0.5" name="allowance" value="{{ leave_data.allowance if leave_data.allowance is not none else '' }}" required>
+      </label>
+      <button class="button primary" type="submit">Keret mentése</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Rögzített szabadságok</h2>
+    {% if leave_data.entries %}
+      <ul class="clean-list">{% for item in leave_data.entries %}<li><a href="{{ url_for('dashboard', date=item['work_date']) }}">{{ item['work_date'] }}</a><span>{{ '1 nap' if item['day_type'] == 'leave_full' else '0,5 nap' }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="muted">Erre az évre még nincs rögzített szabadság.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

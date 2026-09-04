@@ -1,0 +1,15 @@
+services:
+  munkaido:
+    build: .
+    container_name: munkaido-nyilvantarto
+    restart: unless-stopped
+    ports:
+      - "1985:8000"
+    environment:
+      APP_SECRET: ${APP_SECRET:-csereld-le-egy-hosszu-veletlen-szovegre}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Budapest}
+      DATABASE_PATH: /app/data/munkaido.db
+      IMPORT_SEED_EXCEL: ${IMPORT_SEED_EXCEL:-1}
+    volumes:
+      - ./data:/app/data
+

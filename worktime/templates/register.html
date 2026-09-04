@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Regisztráció · Munkaidő{% endblock %}
+{% block content %}
+<section class="auth-card card">
+  <h1>Regisztráció</h1>
+  <form method="post" class="stack-form">
+    <label> Név
+      <input name="display_name" autocomplete="name">
+    </label>
+    <label> E-mail-cím
+      <input type="email" name="email" autocomplete="email" required>
+    </label>
+    <label> Jelszó
+      <input type="password" name="password" minlength="4" autocomplete="new-password" required>
+    </label>
+    <button class="button primary full" type="submit">Fiók létrehozása</button>
+  </form>
+  <p class="auth-link"><a href="{{ url_for('login') }}">Vissza a belépéshez</a></p>
+</section>
+{% endblock %}

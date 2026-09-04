@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Belépés · Munkaidő{% endblock %}
+{% block content %}
+<section class="auth-card card">
+  <h1>Belépés</h1>
+  <p class="muted">Add meg az e-mail-címedet vagy az admin felhasználónevet.</p>
+  <form method="post" class="stack-form">
+    <label> E-mail vagy felhasználónév
+      <input name="login" autocomplete="username" required autofocus>
+    </label>
+    <label> Jelszó
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button class="button primary full" type="submit">Belépés</button>
+  </form>
+  <p class="auth-link">Nincs fiókod? <a href="{{ url_for('register') }}">Regisztráció</a></p>
+</section>
+{% endblock %}

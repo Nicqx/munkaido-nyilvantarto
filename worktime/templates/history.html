@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Előzmények · Munkaidő{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">Napi részletek</p><h1>{{ year }}. {{ month_name }}</h1></div>
+  <div class="month-nav">
+    <a class="button ghost" href="{{ url_for('history', month=previous) }}">← Előző</a>
+    <form method="get"><input type="month" name="month" value="{{ '%04d-%02d'|format(year, month) }}" onchange="this.form.submit()"></form>
+    <a class="button ghost" href="{{ url_for('history', month=next_month) }}">Következő →</a>
+  </div>
+</div>
+
+<section class="card table-card">
+  <div class="desktop-table">
+    <table>
+      <thead><tr><th>Dátum</th><th>Állapot</th><th>Érkezés</th><th>Távozás</th><th>Kint</th><th>Ledolgozott</th><th>Elvárt</th><th>Egyenleg</th><th></th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td><strong>{{ row.day.strftime('%m.%d.') }}</strong><span class="muted block">{{ ['H','K','Sze','Cs','P','Szo','V'][row.day.weekday()] }}</span></td>
+          <td><span class="status {{ row.status_class }}">{{ row.status }}</span></td>
+          <td>{{ row.entry['arrival_time'] if row.entry and row.entry['arrival_time'] else '—' }}</td>
+          <td>{{ row.entry['departure_time'] if row.entry and row.entry['departure_time'] else '—' }}</td>
+          <td>{{ (row.entry['break_seconds'] if row.entry else 0)|duration }}</td>
+          <td>{{ row.metrics.worked_seconds|duration }}</td>
+          <td>{{ row.metrics.expected_seconds|duration }}</td>
+          <td class="{{ 'positive' if row.metrics.balance_seconds is not none and row.metrics.balance_seconds >= 0 else 'negative' if row.metrics.balance_seconds is not none else '' }}">{{ row.metrics.balance_seconds|signed_duration }}</td>
+          <td><a href="{{ url_for('dashboard', date=row.day.isoformat()) }}">Megnyitás</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="mobile-day-list">
+    {% for row in rows %}
+      <a class="day-card" href="{{ url_for('dashboard', date=row.day.isoformat()) }}">
+        <div><strong>{{ row.day.strftime('%m.%d.') }} · {{ ['H','K','Sze','Cs','P','Szo','V'][row.day.weekday()] }}</strong><span class="status {{ row.status_class }}">{{ row.status }}</span></div>
+        <div class="day-times"><span>{{ row.entry['arrival_time'] if row.entry and row.entry['arrival_time'] else '—' }} → {{ row.entry['departure_time'] if row.entry and row.entry['departure_time'] else '—' }}</span><strong class="{{ 'positive' if row.metrics.balance_seconds is not none and row.metrics.balance_seconds >= 0 else 'negative' if row.metrics.balance_seconds is not none else '' }}">{{ row.metrics.balance_seconds|signed_duration }}</strong></div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

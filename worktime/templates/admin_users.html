@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Felhasználók · Munkaidő{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Adminisztráció</p><h1>Felhasználók</h1></div><a class="button ghost" href="{{ url_for('admin_calendar') }}">Munkanaptár</a></div>
+<section class="card table-card">
+  <div class="desktop-table">
+    <table><thead><tr><th>Felhasználó</th><th>Szerepkör</th><th>Állapot</th><th>Műveletek</th></tr></thead><tbody>
+    {% for user in users %}<tr>
+      <td><strong>{{ user['display_name'] }}</strong><span class="muted block">{{ user['login'] }}</span></td>
+      <td>{{ 'Admin' if user['is_admin'] else 'Felhasználó' }}</td>
+      <td><span class="status {{ 'success' if user['active'] else 'danger' }}">{{ 'Aktív' if user['active'] else 'Letiltva' }}</span></td>
+      <td><div class="inline-actions">
+        <a href="{{ url_for('admin_schedule', user_id=user['id']) }}">Munkaidő</a>
+        <form action="{{ url_for('admin_reset_password', user_id=user['id']) }}" method="post" onsubmit="return confirm('A jelszó Almafa.123 lesz. Folytatod?')"><button class="link-button" type="submit">Jelszó reset</button></form>
+        {% if user['id'] != g.user['id'] %}<form action="{{ url_for('admin_toggle_active', user_id=user['id']) }}" method="post"><button class="link-button" type="submit">{{ 'Letiltás' if user['active'] else 'Aktiválás' }}</button></form>{% endif %}
+      </div></td>
+    </tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="mobile-day-list">
+    {% for user in users %}<article class="day-card static"><div><strong>{{ user['display_name'] }}</strong><span class="muted block">{{ user['login'] }}</span></div><div class="inline-actions"><a href="{{ url_for('admin_schedule', user_id=user['id']) }}">Munkaidő</a><form action="{{ url_for('admin_reset_password', user_id=user['id']) }}" method="post"><button class="link-button">Jelszó reset</button></form></div></article>{% endfor %}
+  </div>
+</section>
+{% endblock %}
