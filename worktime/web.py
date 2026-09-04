@@ -256,15 +256,18 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.route("/register", methods=["GET", "POST"])
     def register():
+        form_data = {"display_name": "", "email": ""}
+        errors = {}
         if request.method == "POST":
             email = request.form.get("email", "").strip().lower()
             display_name = request.form.get("display_name", "").strip() or email
             password = request.form.get("password", "")
+            form_data = {"display_name": request.form.get("display_name", "").strip(), "email": email}
             if not email or "@" not in email:
-                flash("Adj meg egy használható e-mail-címet.", "error")
-            elif len(password) < 4:
-                flash("A jelszó legalább 4 karakter legyen.", "error")
-            else:
+                errors["email"] = "Adj meg egy használható e-mail-címet, például nev@pelda.hu."
+            if len(password) < 4:
+                errors["password"] = "A jelszó legalább 4 karakter legyen."
+            if not errors:
                 db = get_db()
                 try:
                     cursor = db.execute(
@@ -279,8 +282,15 @@ def create_app(test_config: dict | None = None) -> Flask:
                     flash("A regisztráció elkészült. Most már bejelentkezhetsz.", "success")
                     return redirect(url_for("login"))
                 except sqlite3.IntegrityError:
-                    flash("Ezzel az e-mail-címmel már létezik felhasználó.", "error")
-        return render_template("register.html")
+                    db.rollback()
+                    errors["email"] = "Ezzel az e-mail-címmel már létezik felhasználó."
+                except sqlite3.Error:
+                    db.rollback()
+                    current_app.logger.exception("A regisztráció adatbázis-művelete sikertelen")
+                    errors["form"] = "A fiókot most nem sikerült létrehozni. Próbáld újra, vagy jelezd az adminnak."
+            if errors:
+                flash("A fiók még nem jött létre. Javítsd a megjelölt mezőket.", "error")
+        return render_template("register.html", form_data=form_data, errors=errors)
 
     @app.post("/logout")
     def logout():
