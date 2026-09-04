@@ -581,6 +581,53 @@ def create_app(test_config: dict | None = None) -> Flask:
         users = get_db().execute("SELECT * FROM users ORDER BY is_admin DESC, login").fetchall()
         return render_template("admin_users.html", users=users)
 
+    @app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])
+    @admin_required
+    def admin_edit_user(user_id: int):
+        db = get_db()
+        user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            abort(404)
+
+        form_data = {
+            "login": user["login"],
+            "display_name": user["display_name"],
+        }
+        errors: dict[str, str] = {}
+        if request.method == "POST":
+            form_data = {
+                "login": request.form.get("login", "").strip(),
+                "display_name": request.form.get("display_name", "").strip(),
+            }
+            if not form_data["login"]:
+                errors["login"] = "A felhasználónév nem lehet üres."
+            elif len(form_data["login"]) > 254:
+                errors["login"] = "A felhasználónév legfeljebb 254 karakter lehet."
+            if not form_data["display_name"]:
+                errors["display_name"] = "A megjelenített név nem lehet üres."
+            elif len(form_data["display_name"]) > 100:
+                errors["display_name"] = "A megjelenített név legfeljebb 100 karakter lehet."
+
+            if not errors:
+                try:
+                    db.execute(
+                        "UPDATE users SET login = ?, display_name = ? WHERE id = ?",
+                        (form_data["login"], form_data["display_name"], user_id),
+                    )
+                    db.commit()
+                    flash("A felhasználó adatai frissültek.", "success")
+                    return redirect(url_for("admin_users"))
+                except sqlite3.IntegrityError:
+                    db.rollback()
+                    errors["login"] = "Ez a felhasználónév már használatban van."
+
+        return render_template(
+            "admin_user_edit.html",
+            selected_user=user,
+            form_data=form_data,
+            errors=errors,
+        )
+
     @app.post("/admin/users/<int:user_id>/reset-password")
     @admin_required
     def admin_reset_password(user_id: int):
@@ -604,6 +651,23 @@ def create_app(test_config: dict | None = None) -> Flask:
             get_db().execute("UPDATE users SET active = CASE active WHEN 1 THEN 0 ELSE 1 END WHERE id = ?", (user_id,))
             get_db().commit()
             flash("A felhasználó állapota módosult.", "success")
+        return redirect(url_for("admin_users"))
+
+    @app.post("/admin/users/<int:user_id>/delete")
+    @admin_required
+    def admin_delete_user(user_id: int):
+        db = get_db()
+        user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            abort(404)
+        if user_id == g.user["id"]:
+            flash("A jelenleg használt admin fiók nem törölhető.", "error")
+            return redirect(url_for("admin_users"))
+
+        login = user["login"]
+        db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        db.commit()
+        flash(f"{login} és minden hozzá tartozó adat véglegesen törölve lett.", "success")
         return redirect(url_for("admin_users"))
 
     @app.route("/admin/users/<int:user_id>/schedule", methods=["GET", "POST"])
