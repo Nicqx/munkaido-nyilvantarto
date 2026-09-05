@@ -1,13 +1,21 @@
 import os
+import sqlite3
 import tempfile
 import unittest
+from datetime import date
 
 from openpyxl import load_workbook
 
 from worktime import create_app
+from worktime.core import entry_metrics
 
 
 class AppTests(unittest.TestCase):
+    ADMIN_PASSWORD = "test-admin-password"
+    SEED_LOGIN = "seed.user@example.test"
+    SEED_PASSWORD = "test-seed-password"
+    DEFAULT_USER_PASSWORD = "test-reset-password"
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.tmp.name, "test.db")
@@ -16,13 +24,20 @@ class AppTests(unittest.TestCase):
             "SECRET_KEY": "test-secret",
             "DATABASE": self.db_path,
             "IMPORT_SEED_EXCEL": False,
+            "ADMIN_PASSWORD": self.ADMIN_PASSWORD,
+            "DEFAULT_USER_PASSWORD": self.DEFAULT_USER_PASSWORD,
+            "SEED_USER_LOGIN": self.SEED_LOGIN,
+            "SEED_USER_DISPLAY_NAME": "Teszt importfelhasználó",
+            "SEED_USER_PASSWORD": self.SEED_PASSWORD,
         })
         self.client = self.app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def login(self, login="sora.luna@gmail.com", password="Almafa.123"):
+    def login(self, login=None, password=None):
+        login = login or self.SEED_LOGIN
+        password = password or self.SEED_PASSWORD
         return self.client.post("/login", data={"login": login, "password": password}, follow_redirects=True)
 
     def test_seed_accounts_can_log_in(self):
@@ -41,7 +56,7 @@ class AppTests(unittest.TestCase):
         login_response = self.login("uj.tesztelo@example.hu", "Teszt.123")
         self.assertIn("Napi rögzítés".encode(), login_response.data)
         self.client.post("/logout")
-        self.login("admin", "admin")
+        self.login("admin", self.ADMIN_PASSWORD)
         admin_page = self.client.get("/admin/users")
         self.assertIn("uj.tesztelo@example.hu".encode(), admin_page.data)
 
@@ -81,13 +96,20 @@ class AppTests(unittest.TestCase):
         self.assertIn("24.0 nap".encode(), response.data)
 
     def test_admin_resets_password(self):
-        self.login("admin", "admin")
+        self.login("admin", self.ADMIN_PASSWORD)
         with self.app.app_context():
             from worktime.db import get_db
-            user = get_db().execute("SELECT id FROM users WHERE login = 'sora.luna@gmail.com'").fetchone()
+            user = get_db().execute(
+                "SELECT id FROM users WHERE login = ?", (self.SEED_LOGIN,)
+            ).fetchone()
             user_id = user["id"]
         response = self.client.post(f"/admin/users/{user_id}/reset-password", follow_redirects=True)
-        self.assertIn("Almafa.123".encode(), response.data)
+        self.assertIn("a beállított alapértelmezett jelszóra".encode(), response.data)
+        self.client.post("/logout")
+        self.assertIn(
+            "Napi rögzítés".encode(),
+            self.login(self.SEED_LOGIN, self.DEFAULT_USER_PASSWORD).data,
+        )
 
     def test_admin_edits_user_login_and_display_name(self):
         self.client.post(
@@ -100,7 +122,7 @@ class AppTests(unittest.TestCase):
                 "SELECT id FROM users WHERE login = 'regi@example.hu'"
             ).fetchone()["id"]
 
-        self.login("admin", "admin")
+        self.login("admin", self.ADMIN_PASSWORD)
         response = self.client.post(
             f"/admin/users/{user_id}/edit",
             data={"display_name": "Új Név", "login": "uj@example.hu"},
@@ -125,7 +147,7 @@ class AppTests(unittest.TestCase):
                 "SELECT id FROM users WHERE login = 'masik@example.hu'"
             ).fetchone()["id"]
 
-        self.login("admin", "admin")
+        self.login("admin", self.ADMIN_PASSWORD)
         response = self.client.post(
             f"/admin/users/{user_id}/edit",
             data={"display_name": "Másik", "login": "admin"},
@@ -157,7 +179,7 @@ class AppTests(unittest.TestCase):
                 "SELECT id FROM users WHERE login = 'torlendo@example.hu'"
             ).fetchone()["id"]
 
-        self.login("admin", "admin")
+        self.login("admin", self.ADMIN_PASSWORD)
         response = self.client.post(
             f"/admin/users/{user_id}/delete", follow_redirects=True
         )
@@ -173,11 +195,11 @@ class AppTests(unittest.TestCase):
                 self.assertEqual(count, 0)
 
     def test_deleted_seed_user_is_not_recreated_on_restart(self):
-        self.login("admin", "admin")
+        self.login("admin", self.ADMIN_PASSWORD)
         with self.app.app_context():
             from worktime.db import get_db
             user_id = get_db().execute(
-                "SELECT id FROM users WHERE login = 'sora.luna@gmail.com'"
+                "SELECT id FROM users WHERE login = ?", (self.SEED_LOGIN,)
             ).fetchone()["id"]
         self.client.post(f"/admin/users/{user_id}/delete")
 
@@ -191,9 +213,173 @@ class AppTests(unittest.TestCase):
             from worktime.db import get_db
             self.assertIsNone(
                 get_db().execute(
-                    "SELECT id FROM users WHERE login = 'sora.luna@gmail.com'"
+                    "SELECT id FROM users WHERE login = ?", (self.SEED_LOGIN,)
                 ).fetchone()
             )
+
+    def test_user_schedule_is_independent_and_controls_balance(self):
+        self.client.post(
+            "/register",
+            data={
+                "display_name": "Más Beosztás",
+                "email": "mas.beosztas@example.hu",
+                "password": "Teszt.123",
+            },
+        )
+        self.login("mas.beosztas@example.hu", "Teszt.123")
+        schedule_data = {
+            f"{kind}_{weekday}": ""
+            for weekday in range(7)
+            for kind in ("arrival", "departure")
+        }
+        schedule_data.update({"arrival_0": "09:00:00", "departure_0": "17:00:00"})
+        response = self.client.post("/schedule", data=schedule_data, follow_redirects=True)
+        self.assertIn("A saját heti beosztásod elmentve".encode(), response.data)
+
+        self.client.post(
+            "/entry/save",
+            data={
+                "work_date": "2020-01-06",
+                "arrival_time": "09:00:00",
+                "departure_time": "17:00:00",
+                "break_time": "00:00:00",
+                "note": "",
+            },
+        )
+        with self.app.app_context():
+            from worktime.db import get_db
+            db = get_db()
+            custom_user = db.execute(
+                "SELECT id FROM users WHERE login = 'mas.beosztas@example.hu'"
+            ).fetchone()
+            seed_user = db.execute(
+                "SELECT id FROM users WHERE login = ?", (self.SEED_LOGIN,)
+            ).fetchone()
+            custom_schedule = db.execute(
+                "SELECT expected_seconds FROM work_schedules WHERE user_id = ? AND weekday = 0",
+                (custom_user["id"],),
+            ).fetchone()
+            seed_schedule = db.execute(
+                "SELECT expected_seconds FROM work_schedules WHERE user_id = ? AND weekday = 0",
+                (seed_user["id"],),
+            ).fetchone()
+            entry = db.execute(
+                "SELECT * FROM work_entries WHERE user_id = ? AND work_date = '2020-01-06'",
+                (custom_user["id"],),
+            ).fetchone()
+            metrics = entry_metrics(db, custom_user["id"], date(2020, 1, 6), entry)
+            self.assertEqual(custom_schedule["expected_seconds"], 8 * 3600)
+            self.assertEqual(seed_schedule["expected_seconds"], 10 * 3600)
+            self.assertEqual(metrics.balance_seconds, 0)
+
+    def test_weekly_fill_uses_defaults_without_overwriting_existing_days(self):
+        self.login()
+        self.client.post(
+            "/entry/save",
+            data={
+                "work_date": "2020-01-07",
+                "arrival_time": "09:15:00",
+                "departure_time": "",
+                "break_time": "00:00:00",
+                "note": "részleges",
+            },
+        )
+        self.client.post(
+            "/entry/leave",
+            data={"work_date": "2020-01-08", "kind": "leave_full"},
+        )
+        self.client.post(
+            "/entry/save",
+            data={
+                "work_date": "2020-01-09",
+                "arrival_time": "10:00:00",
+                "departure_time": "18:00:00",
+                "break_time": "00:00:00",
+                "note": "meglévő",
+            },
+        )
+        response = self.client.post(
+            "/entry/fill-week",
+            data={"selected_date": "2020-01-08"},
+            follow_redirects=True,
+        )
+        self.assertIn("Heti pótlás kész: 2 nap kitöltve".encode(), response.data)
+
+        with self.app.app_context():
+            from worktime.db import get_db
+            rows = get_db().execute(
+                """
+                SELECT work_date, arrival_time, departure_time, day_type, source
+                FROM work_entries
+                WHERE user_id = (
+                    SELECT id FROM users WHERE login = ?
+                ) AND work_date BETWEEN '2020-01-06' AND '2020-01-12'
+                ORDER BY work_date
+                """,
+                (self.SEED_LOGIN,),
+            ).fetchall()
+            by_day = {row["work_date"]: row for row in rows}
+            self.assertEqual(
+                (by_day["2020-01-06"]["arrival_time"], by_day["2020-01-06"]["departure_time"]),
+                ("08:00:00", "18:00:00"),
+            )
+            self.assertEqual(by_day["2020-01-06"]["source"], "weekly-auto-fill")
+            self.assertEqual(by_day["2020-01-07"]["arrival_time"], "09:15:00")
+            self.assertIsNone(by_day["2020-01-07"]["departure_time"])
+            self.assertEqual(by_day["2020-01-08"]["day_type"], "leave_full")
+            self.assertEqual(by_day["2020-01-09"]["arrival_time"], "10:00:00")
+            self.assertEqual(
+                (by_day["2020-01-10"]["arrival_time"], by_day["2020-01-10"]["departure_time"]),
+                ("08:00:00", "13:30:00"),
+            )
+
+    def test_legacy_schedule_schema_is_migrated_without_losing_duration(self):
+        legacy_path = os.path.join(self.tmp.name, "legacy.db")
+        conn = sqlite3.connect(legacy_path)
+        conn.executescript(
+            """
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                login TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE work_schedules (
+                user_id INTEGER NOT NULL,
+                weekday INTEGER NOT NULL,
+                expected_seconds INTEGER NOT NULL,
+                PRIMARY KEY (user_id, weekday)
+            );
+            INSERT INTO users(
+                id, login, display_name, password_hash, is_admin, active, created_at
+            ) VALUES (42, 'legacy@example.hu', 'Legacy', 'x', 0, 1, '2020-01-01');
+            INSERT INTO work_schedules(user_id, weekday, expected_seconds)
+            VALUES (42, 0, 25200);
+            """
+        )
+        conn.close()
+
+        migrated_app = create_app({
+            "TESTING": True,
+            "SECRET_KEY": "test-secret",
+            "DATABASE": legacy_path,
+            "IMPORT_SEED_EXCEL": False,
+            "ADMIN_PASSWORD": self.ADMIN_PASSWORD,
+        })
+        with migrated_app.app_context():
+            from worktime.db import get_db
+            row = get_db().execute(
+                """
+                SELECT expected_seconds, default_arrival_time, default_departure_time
+                FROM work_schedules WHERE user_id = 42 AND weekday = 0
+                """
+            ).fetchone()
+            self.assertEqual(row["expected_seconds"], 7 * 3600)
+            self.assertEqual(row["default_arrival_time"], "08:00:00")
+            self.assertEqual(row["default_departure_time"], "15:00:00")
 
     def test_excel_export_is_valid(self):
         self.login()
