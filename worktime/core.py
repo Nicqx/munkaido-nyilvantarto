@@ -16,6 +16,7 @@ DEFAULT_SCHEDULE = {
     5: 0,
     6: 0,
 }
+DEFAULT_ARRIVAL_SECONDS = 8 * 3600
 
 DAY_NAMES = ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"]
 MONTH_NAMES = [
@@ -134,14 +135,46 @@ def ensure_calendar_year(conn: sqlite3.Connection, year: int) -> None:
 
 
 def schedule_seconds(conn: sqlite3.Connection, user_id: int, weekday: int) -> int:
+    return schedule_details(conn, user_id, weekday)[0]
+
+
+def default_schedule_times(expected_seconds: int) -> tuple[str | None, str | None]:
+    expected_seconds = max(0, int(expected_seconds))
+    if expected_seconds == 0:
+        return None, None
+    start = DEFAULT_ARRIVAL_SECONDS
+    if start + expected_seconds >= 24 * 3600:
+        start = 0
+    departure = start + expected_seconds
+    if departure >= 24 * 3600:
+        return None, None
+    return format_clock(start), format_clock(departure)
+
+
+def schedule_details(
+    conn: sqlite3.Connection, user_id: int, weekday: int
+) -> tuple[int, str | None, str | None]:
     row = conn.execute(
-        "SELECT expected_seconds FROM work_schedules WHERE user_id = ? AND weekday = ?",
+        """
+        SELECT expected_seconds, default_arrival_time, default_departure_time
+        FROM work_schedules WHERE user_id = ? AND weekday = ?
+        """,
         (user_id, weekday),
     ).fetchone()
-    return int(row["expected_seconds"]) if row else DEFAULT_SCHEDULE[weekday]
+    if row:
+        return (
+            int(row["expected_seconds"]),
+            row["default_arrival_time"],
+            row["default_departure_time"],
+        )
+    expected = DEFAULT_SCHEDULE[weekday]
+    arrival, departure = default_schedule_times(expected)
+    return expected, arrival, departure
 
 
-def calendar_expected_seconds(conn: sqlite3.Connection, user_id: int, day: date) -> tuple[int, str]:
+def calendar_schedule_details(
+    conn: sqlite3.Connection, user_id: int, day: date
+) -> tuple[int, str | None, str | None, str]:
     ensure_calendar_year(conn, day.year)
     override = conn.execute(
         "SELECT kind, source_date, label FROM calendar_overrides WHERE work_date = ?",
@@ -149,14 +182,20 @@ def calendar_expected_seconds(conn: sqlite3.Connection, user_id: int, day: date)
     ).fetchone()
     if override:
         if override["kind"] in ("holiday", "rest_day"):
-            return 0, override["label"]
+            return 0, None, None, override["label"]
         if override["kind"] == "transferred_workday":
             source = date.fromisoformat(override["source_date"])
-            return schedule_seconds(conn, user_id, source.weekday()), override["label"]
+            expected, arrival, departure = schedule_details(conn, user_id, source.weekday())
+            return expected, arrival, departure, override["label"]
         # A stored "normal" value deliberately overrides a built-in holiday.
-    if day.weekday() >= 5:
-        return 0, "Hétvége"
-    return schedule_seconds(conn, user_id, day.weekday()), ""
+    expected, arrival, departure = schedule_details(conn, user_id, day.weekday())
+    label = "Hétvége" if day.weekday() >= 5 and expected == 0 else ""
+    return expected, arrival, departure, label
+
+
+def calendar_expected_seconds(conn: sqlite3.Connection, user_id: int, day: date) -> tuple[int, str]:
+    expected, _arrival, _departure, label = calendar_schedule_details(conn, user_id, day)
+    return expected, label
 
 
 def expected_seconds_for_entry(
