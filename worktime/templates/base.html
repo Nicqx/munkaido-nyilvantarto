@@ -17,6 +17,7 @@
         <a href="{{ url_for('history') }}">Előzmények</a>
         <a href="{{ url_for('stats') }}">Statisztika</a>
         <a href="{{ url_for('leave') }}">Szabadság</a>
+        <a href="{{ url_for('my_schedule') }}">Beosztás</a>
         <a href="{{ url_for('change_password') }}">Jelszó</a>
         {% if g.user['is_admin'] %}
           <a href="{{ url_for('admin_users') }}">Admin</a>
