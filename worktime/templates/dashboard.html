@@ -33,6 +33,18 @@
   </article>
 </section>
 
+<section class="card weekly-fill-card">
+  <div>
+    <p class="eyebrow">Heti pótlás</p>
+    <h2>{{ selected_week_start.strftime('%Y-%m-%d') }} – {{ selected_week_end.strftime('%Y-%m-%d') }}</h2>
+    <p class="muted">A beosztásod szerinti alapidőkkel kitölti a hét üres munkanapjait legfeljebb a mai napig. Meglévő vagy részben kitöltött napot, szabadságot és ünnepnapot nem módosít.</p>
+  </div>
+  <form action="{{ url_for('fill_week') }}" method="post" onsubmit="return confirm('Kitöltöd ennek a hétnek az üres munkanapjait az alapértelmezett időkkel?')">
+    <input type="hidden" name="selected_date" value="{{ selected_day.isoformat() }}">
+    <button class="button soft" type="submit" {% if selected_week_start > today %}disabled{% endif %}>Hét üres napjainak kitöltése</button>
+  </form>
+</section>
+
 <div class="dashboard-grid">
   <section class="card action-card">
     <div class="section-heading">
