@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -25,7 +25,7 @@ from .core import (
     DAY_NAMES,
     DAY_TYPE_LABELS,
     MONTH_NAMES,
-    calendar_expected_seconds,
+    calendar_schedule_details,
     clock_now_text,
     entry_metrics,
     format_clock,
@@ -33,7 +33,7 @@ from .core import (
     iter_month_days,
     month_shift,
     parse_hms,
-    schedule_seconds,
+    schedule_details,
     utc_now,
 )
 from .db import add_default_schedule, get_db, init_app
@@ -49,6 +49,12 @@ def create_app(test_config: dict | None = None) -> Flask:
         TIMEZONE=os.environ.get("APP_TIMEZONE", "Europe/Budapest"),
         IMPORT_SEED_EXCEL=os.environ.get("IMPORT_SEED_EXCEL", "1") == "1",
         SEED_EXCEL_PATH=str(project_root / "seed" / "Kimutatas_a_ledolgozott_munkaidorol.xlsx"),
+        ADMIN_LOGIN=os.environ.get("ADMIN_LOGIN", "admin"),
+        ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD", ""),
+        DEFAULT_USER_PASSWORD=os.environ.get("DEFAULT_USER_PASSWORD", ""),
+        SEED_USER_LOGIN=os.environ.get("SEED_USER_LOGIN", ""),
+        SEED_USER_DISPLAY_NAME=os.environ.get("SEED_USER_DISPLAY_NAME", "Importált felhasználó"),
+        SEED_USER_PASSWORD=os.environ.get("SEED_USER_PASSWORD", ""),
     )
     if test_config:
         app.config.update(test_config)
@@ -229,6 +235,57 @@ def create_app(test_config: dict | None = None) -> Flask:
             "entries": rows,
         }
 
+    def schedule_rows(user_id: int) -> list[dict]:
+        rows = []
+        for weekday in range(7):
+            expected, arrival, departure = schedule_details(get_db(), user_id, weekday)
+            rows.append({
+                "weekday": weekday,
+                "name": DAY_NAMES[weekday],
+                "seconds": expected,
+                "arrival": arrival,
+                "departure": departure,
+            })
+        return rows
+
+    def save_weekly_schedule(user_id: int) -> None:
+        values = []
+        for weekday in range(7):
+            arrival_text = request.form.get(f"arrival_{weekday}", "").strip()
+            departure_text = request.form.get(f"departure_{weekday}", "").strip()
+            if not arrival_text and not departure_text:
+                values.append((user_id, weekday, 0, None, None))
+                continue
+            if not arrival_text or not departure_text:
+                raise ValueError(f"{DAY_NAMES[weekday]}: add meg az érkezést és a távozást is.")
+            arrival = parse_hms(arrival_text)
+            departure = parse_hms(departure_text)
+            if arrival is None or departure is None or departure <= arrival:
+                raise ValueError(f"{DAY_NAMES[weekday]}: a távozás legyen később az érkezésnél.")
+            values.append((
+                user_id,
+                weekday,
+                departure - arrival,
+                format_clock(arrival),
+                format_clock(departure),
+            ))
+
+        db = get_db()
+        db.executemany(
+            """
+            INSERT INTO work_schedules(
+                user_id, weekday, expected_seconds,
+                default_arrival_time, default_departure_time
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, weekday) DO UPDATE SET
+                expected_seconds = excluded.expected_seconds,
+                default_arrival_time = excluded.default_arrival_time,
+                default_departure_time = excluded.default_departure_time
+            """,
+            values,
+        )
+        db.commit()
+
     @app.get("/health")
     def health():
         get_db().execute("SELECT 1").fetchone()
@@ -316,6 +373,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         year_summary = summary_for_year(g.user["id"], selected_day.year)
         month_data = year_summary["months"][selected_day.month - 1]
         leave_data = leave_summary(g.user["id"], selected_day.year)
+        selected_week_start = selected_day - timedelta(days=selected_day.weekday())
+        selected_week_end = selected_week_start + timedelta(days=6)
         return render_template(
             "dashboard.html",
             selected_day=selected_day,
@@ -326,6 +385,8 @@ def create_app(test_config: dict | None = None) -> Flask:
             month_data=month_data,
             year_summary=year_summary,
             leave_data=leave_data,
+            selected_week_start=selected_week_start,
+            selected_week_end=selected_week_end,
             day_type_labels=DAY_TYPE_LABELS,
         )
 
@@ -458,6 +519,80 @@ def create_app(test_config: dict | None = None) -> Flask:
         flash("A nap időadatai kiürítve.", "success")
         return redirect(url_for("dashboard", date=day.isoformat()))
 
+    @app.post("/entry/fill-week")
+    @login_required
+    def fill_week():
+        try:
+            selected_day = parse_iso_date(request.form.get("selected_date"), local_now().date())
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("dashboard"))
+
+        today = local_now().date()
+        week_start = selected_day - timedelta(days=selected_day.weekday())
+        week_end = min(week_start + timedelta(days=6), today)
+        if week_end < week_start:
+            flash("Jövőbeli hét napjai nem tölthetők ki automatikusan.", "error")
+            return redirect(url_for("dashboard", date=selected_day.isoformat()))
+
+        filled = 0
+        skipped_existing = 0
+        skipped_nonwork = 0
+        skipped_unconfigured = 0
+        day = week_start
+        while day <= week_end:
+            entry = get_entry(g.user["id"], day)
+            if entry and (
+                entry["day_type"] != "work"
+                or entry["arrival_time"]
+                or entry["departure_time"]
+                or entry["break_started_at"]
+            ):
+                skipped_existing += 1
+                day += timedelta(days=1)
+                continue
+
+            expected, arrival, departure, _label = calendar_schedule_details(
+                get_db(), g.user["id"], day
+            )
+            if entry and entry["expected_seconds_override"] is not None:
+                expected = int(entry["expected_seconds_override"])
+                if arrival and expected > 0:
+                    arrival_seconds = parse_hms(arrival)
+                    calculated_departure = int(arrival_seconds or 0) + expected
+                    departure = (
+                        format_clock(calculated_departure)
+                        if calculated_departure < 24 * 3600
+                        else None
+                    )
+            if expected <= 0:
+                skipped_nonwork += 1
+            elif not arrival or not departure:
+                skipped_unconfigured += 1
+            else:
+                upsert_entry(
+                    g.user["id"],
+                    day,
+                    arrival_time=arrival,
+                    departure_time=departure,
+                    break_seconds=0,
+                    break_started_at=None,
+                    day_type="work",
+                    source="weekly-auto-fill",
+                )
+                filled += 1
+            day += timedelta(days=1)
+
+        details = [f"{filled} nap kitöltve"]
+        if skipped_existing:
+            details.append(f"{skipped_existing} meglévő nap változatlan")
+        if skipped_nonwork:
+            details.append(f"{skipped_nonwork} szabad/ünnepnap kihagyva")
+        if skipped_unconfigured:
+            details.append(f"{skipped_unconfigured} beosztás nélküli nap kihagyva")
+        flash("Heti pótlás kész: " + ", ".join(details) + ".", "success")
+        return redirect(url_for("dashboard", date=selected_day.isoformat()))
+
     @app.get("/history")
     @login_required
     def history():
@@ -537,6 +672,23 @@ def create_app(test_config: dict | None = None) -> Flask:
                 flash("A keret csak egész vagy fél nap lehet, például 25 vagy 25,5.", "error")
             return redirect(url_for("leave", year=year))
         return render_template("leave.html", year=year, leave_data=leave_summary(g.user["id"], year))
+
+    @app.route("/schedule", methods=["GET", "POST"])
+    @login_required
+    def my_schedule():
+        if request.method == "POST":
+            try:
+                save_weekly_schedule(g.user["id"])
+                flash("A saját heti beosztásod elmentve.", "success")
+                return redirect(url_for("my_schedule"))
+            except ValueError as exc:
+                flash(str(exc), "error")
+        return render_template(
+            "admin_schedule.html",
+            selected_user=g.user,
+            schedule=schedule_rows(g.user["id"]),
+            own_schedule=True,
+        )
 
     @app.route("/settings/password", methods=["GET", "POST"])
     @login_required
@@ -634,12 +786,19 @@ def create_app(test_config: dict | None = None) -> Flask:
         user = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
             abort(404)
+        default_password = app.config.get("DEFAULT_USER_PASSWORD", "")
+        if not default_password:
+            flash(
+                "A jelszó-visszaállításhoz előbb add meg a DEFAULT_USER_PASSWORD értékét a szerver .env fájljában.",
+                "error",
+            )
+            return redirect(url_for("admin_users"))
         get_db().execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
-            (generate_password_hash("Almafa.123"), user_id),
+            (generate_password_hash(default_password), user_id),
         )
         get_db().commit()
-        flash(f"{user['login']} jelszava visszaállt erre: Almafa.123", "success")
+        flash(f"{user['login']} jelszava visszaállt a beállított alapértelmezett jelszóra.", "success")
         return redirect(url_for("admin_users"))
 
     @app.post("/admin/users/<int:user_id>/toggle-active")
@@ -679,23 +838,17 @@ def create_app(test_config: dict | None = None) -> Flask:
             abort(404)
         if request.method == "POST":
             try:
-                values = []
-                for weekday in range(7):
-                    seconds = parse_hms(request.form.get(f"day_{weekday}"), allow_over_24=True) or 0
-                    values.append((seconds, user_id, weekday))
-                db.executemany(
-                    "UPDATE work_schedules SET expected_seconds = ? WHERE user_id = ? AND weekday = ?",
-                    values,
-                )
-                db.commit()
+                save_weekly_schedule(user_id)
                 flash("A heti munkaidő-beosztás elmentve.", "success")
+                return redirect(url_for("admin_schedule", user_id=user_id))
             except ValueError as exc:
                 flash(str(exc), "error")
-        schedule = [
-            {"weekday": day, "name": DAY_NAMES[day], "seconds": schedule_seconds(db, user_id, day)}
-            for day in range(7)
-        ]
-        return render_template("admin_schedule.html", selected_user=user, schedule=schedule)
+        return render_template(
+            "admin_schedule.html",
+            selected_user=user,
+            schedule=schedule_rows(user_id),
+            own_schedule=False,
+        )
 
     @app.route("/admin/calendar", methods=["GET", "POST"])
     @admin_required
