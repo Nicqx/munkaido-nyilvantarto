@@ -10,6 +10,11 @@ services:
       APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Budapest}
       DATABASE_PATH: /app/data/munkaido.db
       IMPORT_SEED_EXCEL: ${IMPORT_SEED_EXCEL:-1}
+      ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:-}
+      SEED_USER_LOGIN: ${SEED_USER_LOGIN:-}
+      SEED_USER_DISPLAY_NAME: ${SEED_USER_DISPLAY_NAME:-Importált felhasználó}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-}
     volumes:
       - ./data:/app/data
-

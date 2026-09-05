@@ -8,10 +8,12 @@ from pathlib import Path
 from flask import current_app, g
 from werkzeug.security import generate_password_hash
 
-from .core import DEFAULT_SCHEDULE, ensure_calendar_year
+from .core import DEFAULT_SCHEDULE, default_schedule_times, ensure_calendar_year
 
 
 SEED_USER_META_KEY = "seed_user_initialized_v1"
+ADMIN_USER_META_KEY = "admin_user_initialized_v1"
+SEED_IMPORT_META_KEY = "seed_excel_import_v1"
 
 
 def connect_db(path: str) -> sqlite3.Connection:
@@ -38,9 +40,44 @@ def close_db(_error=None) -> None:
 
 def add_default_schedule(conn: sqlite3.Connection, user_id: int) -> None:
     for weekday, seconds in DEFAULT_SCHEDULE.items():
+        arrival, departure = default_schedule_times(seconds)
         conn.execute(
-            "INSERT OR IGNORE INTO work_schedules(user_id, weekday, expected_seconds) VALUES (?, ?, ?)",
-            (user_id, weekday, seconds),
+            """
+            INSERT OR IGNORE INTO work_schedules(
+                user_id, weekday, expected_seconds,
+                default_arrival_time, default_departure_time
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, weekday, seconds, arrival, departure),
+        )
+
+
+def migrate_schedule_defaults(conn: sqlite3.Connection) -> None:
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(work_schedules)").fetchall()
+    }
+    if "default_arrival_time" not in columns:
+        conn.execute("ALTER TABLE work_schedules ADD COLUMN default_arrival_time TEXT")
+    if "default_departure_time" not in columns:
+        conn.execute("ALTER TABLE work_schedules ADD COLUMN default_departure_time TEXT")
+
+    rows = conn.execute(
+        """
+        SELECT user_id, weekday, expected_seconds
+        FROM work_schedules
+        WHERE default_arrival_time IS NULL AND default_departure_time IS NULL
+          AND expected_seconds > 0
+        """
+    ).fetchall()
+    for row in rows:
+        arrival, departure = default_schedule_times(row["expected_seconds"])
+        conn.execute(
+            """
+            UPDATE work_schedules
+            SET default_arrival_time = ?, default_departure_time = ?
+            WHERE user_id = ? AND weekday = ?
+            """,
+            (arrival, departure, row["user_id"], row["weekday"]),
         )
 
 
@@ -74,21 +111,64 @@ def init_database(app) -> None:
     conn = connect_db(path)
     schema_path = Path(__file__).with_name("schema.sql")
     conn.executescript(schema_path.read_text(encoding="utf-8"))
-    ensure_user(conn, "admin", "Adminisztrátor", "admin", is_admin=True)
-    seed_user = conn.execute(
-        "SELECT id FROM users WHERE login = ?", ("sora.luna@gmail.com",)
+    migrate_schedule_defaults(conn)
+
+    admin_user = conn.execute(
+        "SELECT id FROM users WHERE is_admin = 1 ORDER BY id LIMIT 1"
     ).fetchone()
+    if not admin_user:
+        admin_password = app.config.get("ADMIN_PASSWORD", "")
+        if not admin_password:
+            conn.close()
+            raise RuntimeError(
+                "Első indítás előtt add meg az ADMIN_PASSWORD értékét a .env fájlban."
+            )
+        ensure_user(
+            conn,
+            app.config.get("ADMIN_LOGIN", "admin"),
+            "Adminisztrátor",
+            admin_password,
+            is_admin=True,
+        )
+    conn.execute(
+        "INSERT OR IGNORE INTO app_meta(key, value) VALUES (?, ?)",
+        (ADMIN_USER_META_KEY, "1"),
+    )
+
+    already_imported = conn.execute(
+        "SELECT 1 FROM app_meta WHERE key = ?", (SEED_IMPORT_META_KEY,)
+    ).fetchone()
+    seed_login = app.config.get("SEED_USER_LOGIN", "").strip()
+    seed_password = app.config.get("SEED_USER_PASSWORD", "")
+    seed_user = (
+        conn.execute("SELECT id FROM users WHERE login = ?", (seed_login,)).fetchone()
+        if seed_login
+        else None
+    )
     seed_user_id = int(seed_user["id"]) if seed_user else None
     seed_user_initialized = conn.execute(
         "SELECT 1 FROM app_meta WHERE key = ?", (SEED_USER_META_KEY,)
     ).fetchone()
     if not seed_user_initialized:
-        if seed_user_id is None:
+        should_create_seed = (
+            not already_imported
+            and (
+                app.config.get("IMPORT_SEED_EXCEL", True)
+                or bool(seed_login)
+                or bool(seed_password)
+            )
+        )
+        if should_create_seed and (not seed_login or not seed_password):
+            conn.close()
+            raise RuntimeError(
+                "Az első Excel-import előtt add meg a SEED_USER_LOGIN és SEED_USER_PASSWORD értékét a .env fájlban."
+            )
+        if should_create_seed and seed_user_id is None:
             seed_user_id = ensure_user(
                 conn,
-                "sora.luna@gmail.com",
-                "Kovács Anna",
-                "Almafa.123",
+                seed_login,
+                app.config.get("SEED_USER_DISPLAY_NAME", "Importált felhasználó"),
+                seed_password,
                 is_admin=False,
             )
         conn.execute(
@@ -107,11 +187,16 @@ def init_database(app) -> None:
         ).fetchone()
         if not already_imported:
             if seed_user_id is None:
+                if not seed_login or not seed_password:
+                    conn.close()
+                    raise RuntimeError(
+                        "Az Excel-importhoz add meg a SEED_USER_LOGIN és SEED_USER_PASSWORD értékét a .env fájlban."
+                    )
                 seed_user_id = ensure_user(
                     conn,
-                    "sora.luna@gmail.com",
-                    "Kovács Anna",
-                    "Almafa.123",
+                    seed_login,
+                    app.config.get("SEED_USER_DISPLAY_NAME", "Importált felhasználó"),
+                    seed_password,
                     is_admin=False,
                 )
             import_seed_workbook(conn, seed_user_id, app.config["SEED_EXCEL_PATH"])

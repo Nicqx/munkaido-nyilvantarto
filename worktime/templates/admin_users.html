@@ -18,7 +18,7 @@
           <td><div class="inline-actions admin-actions">
             <a href="{{ url_for('admin_edit_user', user_id=user['id']) }}">Szerkesztés</a>
             <a href="{{ url_for('admin_schedule', user_id=user['id']) }}">Munkaidő</a>
-            <form action="{{ url_for('admin_reset_password', user_id=user['id']) }}" method="post" onsubmit="return confirm('A jelszó Almafa.123 lesz. Folytatod?')">
+            <form action="{{ url_for('admin_reset_password', user_id=user['id']) }}" method="post" onsubmit="return confirm('A jelszó a szerveren beállított alapértelmezett értékre változik. Folytatod?')">
               <button class="link-button" type="submit">Jelszó reset</button>
             </form>
             {% if user['id'] != g.user['id'] %}
@@ -43,7 +43,7 @@
         <div class="inline-actions admin-actions">
           <a href="{{ url_for('admin_edit_user', user_id=user['id']) }}">Szerkesztés</a>
           <a href="{{ url_for('admin_schedule', user_id=user['id']) }}">Munkaidő</a>
-          <form action="{{ url_for('admin_reset_password', user_id=user['id']) }}" method="post" onsubmit="return confirm('A jelszó Almafa.123 lesz. Folytatod?')">
+          <form action="{{ url_for('admin_reset_password', user_id=user['id']) }}" method="post" onsubmit="return confirm('A jelszó a szerveren beállított alapértelmezett értékre változik. Folytatod?')">
             <button class="link-button" type="submit">Jelszó reset</button>
           </form>
           {% if user['id'] != g.user['id'] %}

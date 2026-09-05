@@ -1,8 +1,8 @@
 # Munkaidő-nyilvántartó
 
-Verzió: **1.1.0**
+Verzió: **1.2.0**
 
-Az 1.1.0-s verzióban az admin módosíthatja a felhasználónevet és a megjelenített nevet, valamint megerősítés után teljes felhasználói fiókot is törölhet. A törlés a fiókhoz tartozó munkaidő-, beosztás- és szabadságadatokat is eltávolítja.
+Az 1.2.0-s verzióban minden felhasználónak saját heti alapbeosztása lehet, alapértelmezett érkezési és távozási időkkel. A kiválasztott hét üres, már elérkezett munkanapjai egyetlen gombbal pótolhatók.
 
 Mobiltelefonon és asztali gépen használható, Dockerben futó munkaidő-nyilvántartó.
 
@@ -13,6 +13,8 @@ Fő funkciók:
 - „Megérkeztem most” és „Távoztam most” gyorsgomb;
 - „Kiszaladok / Visszaértem” szünetmérés;
 - múltbeli napok szerkesztése;
+- felhasználónkénti, saját maguk által is szerkeszthető heti beosztás;
+- a kijelölt hét üres munkanapjainak automatikus pótlása;
 - havi és éves túlóra-egyenleg;
 - teljes és fél nap szabadság;
 - éves szabadságkeret;
@@ -22,13 +24,13 @@ Fő funkciók:
 - Excel-export;
 - az átadott 2026-os Excel-adatok automatikus, egyszeri importálása.
 
-## Első belépés
+## Belépési adatok
 
-| Szerepkör | Felhasználónév | Jelszó |
-|---|---|---|
-| Admin | `admin` | `admin` |
+A konkrét admin- és importált felhasználói belépési adatokat a helyi `.env` fájl tartalmazza, amelyet a Git nem tölt fel. Új telepítésnél az első indítás előtt legalább az `ADMIN_PASSWORD`, az Excel-import használatakor pedig a `SEED_USER_LOGIN` és `SEED_USER_PASSWORD` értékét is meg kell adni.
 
-Az admin minden felhasználó jelszavát az `Almafa.123` alapértelmezett jelszóra tudja visszaállítani. Mindenki megváltoztathatja a saját jelszavát.
+A jelszó-visszaállításkor használt érték a `DEFAULT_USER_PASSWORD` beállítás. Minden felhasználó megváltoztathatja a saját jelszavát.
+
+Már működő telepítés frissítésekor a meglévő adminfiók, felhasználók és jelszavak változatlanul megmaradnak.
 
 ## Követelmények
 
@@ -51,7 +53,14 @@ Az admin minden felhasználó jelszavát az `Almafa.123` alapértelmezett jelsz�
    cp .env.example .env
    ```
 
-4. Az `.env` fájlban az `APP_SECRET` értékét ajánlott tetszőleges hosszú szövegre cserélni.
+4. Az `.env` fájlban:
+
+   - az `APP_SECRET` értékét cseréld tetszőleges hosszú szövegre;
+   - új adatbázis esetén add meg az `ADMIN_PASSWORD` értékét;
+   - az Excel-importhoz add meg a `SEED_USER_LOGIN`, `SEED_USER_DISPLAY_NAME` és `SEED_USER_PASSWORD` értékét;
+   - a jelszó-visszaállításhoz add meg a `DEFAULT_USER_PASSWORD` értékét.
+
+   A saját `.env` fájlt ne töltsd fel nyilvános Git-tárolóba.
 5. Indítsd el:
 
    ```bash
@@ -156,7 +165,7 @@ Az adatbázis helye:
 ./data/munkaido.db
 ```
 
-Az első induláskor a `seed/Kimutatas_a_ledolgozott_munkaidorol.xlsx` tartalma egyszer kerül az adatbázisba. Az alkalmazás megjegyzi az importálás tényét, ezért újraindításkor nem duplikálja az adatokat.
+Az első induláskor a `seed/Kimutatas_a_ledolgozott_munkaidorol.xlsx` tartalma egyszer kerül a helyi `.env` fájlban megadott importfelhasználóhoz. Az alkalmazás megjegyzi az importálás tényét, ezért újraindításkor nem duplikálja az adatokat.
 
 Az adminfelületen törölt fiókot az alkalmazás újraindításkor sem hozza létre ismét.
 
@@ -177,19 +186,31 @@ Ledolgozott idő = távozás − érkezés − összes kint töltött idő
 Napi egyenleg = ledolgozott idő − elvárt idő
 ```
 
-Alapértelmezett heti beosztás:
+Új felhasználók kezdeti heti beosztása:
 
-| Nap | Elvárt idő |
-|---|---:|
-| Hétfő | 10:00:00 |
-| Kedd | 08:00:00 |
-| Szerda | 08:30:00 |
-| Csütörtök | 08:00:00 |
-| Péntek | 05:30:00 |
-| Szombat | 00:00:00 |
-| Vasárnap | 00:00:00 |
+| Nap | Érkezés | Távozás | Elvárt idő |
+|---|---:|---:|---:|
+| Hétfő | 08:00:00 | 18:00:00 | 10:00:00 |
+| Kedd | 08:00:00 | 16:00:00 | 08:00:00 |
+| Szerda | 08:00:00 | 16:30:00 | 08:30:00 |
+| Csütörtök | 08:00:00 | 16:00:00 | 08:00:00 |
+| Péntek | 08:00:00 | 13:30:00 | 05:30:00 |
+| Szombat | — | — | 00:00:00 |
+| Vasárnap | — | — | 00:00:00 |
 
-Az admin ezt felhasználónként módosíthatja.
+A felhasználó a „Beosztás” menüpontban saját magának, az admin pedig az adminfelületen bármelyik felhasználónak módosíthatja ezt. Az elvárt idő az érkezés és távozás különbségéből számolódik. Ha egy nap mindkét időpontja üres, az a felhasználó alapbeosztásában szabadnap; ezért hétvégi munkarend is megadható.
+
+### Heti automatikus pótlás
+
+A napi rögzítés oldalán a kijelölt dátum teljes hetéhez elérhető a „Hét üres napjainak kitöltése” gomb. A funkció:
+
+- csak a hét kezdetétől a mai napig dolgozik, jövőbeli napot nem tölt ki;
+- a felhasználó saját alapértelmezett érkezési és távozási idejét írja be;
+- a meglévő vagy részben kitöltött napokat nem módosítja;
+- a szabadságot, ünnepnapot, pihenőnapot és a beosztás szerinti szabadnapot kihagyja;
+- egyszerre mindig csak a kijelölt hetet kezeli, ezért régebbi időszakok biztonságosan, hetenként pótolhatók.
+
+Az importált egyedi elvárt idők változatlanok maradnak.
 
 Nincs automatikus ebédszünet-levonás. A „Kiszaladok” funkcióval mért idő csökkenti a ledolgozott időt.
 

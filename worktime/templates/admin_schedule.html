@@ -1,13 +1,32 @@
 {% extends "base.html" %}
 {% block title %}Munkaidő-beosztás · Munkaidő{% endblock %}
 {% block content %}
-<section class="card narrow-card">
-  <p class="eyebrow">{{ selected_user['login'] }}</p><h1>Heti munkaidő</h1>
-  <p class="muted">Az áthelyezett munkanap az eredeti nap itt megadott munkaidejét örökli.</p>
+<section class="card schedule-card">
+  <p class="eyebrow">{% if own_schedule %}Saját beosztás{% else %}{{ selected_user['login'] }}{% endif %}</p>
+  <h1>Heti munkaidő</h1>
+  <p class="muted">Minden munkanaphoz add meg az alapértelmezett érkezést és távozást. Ha egy nap mindkét mezője üres, az alapbeosztás szerint szabadnap. Az elvárt idő automatikusan a két időpont különbsége.</p>
+  <p class="notice">A heti automatikus pótlás ezeket az időpontokat használja. A beosztás módosítása nem írja át a már rögzített napokat.</p>
   <form method="post" class="stack-form">
-    {% for item in schedule %}<label>{{ item.name }}<input name="day_{{ item.weekday }}" value="{{ item.seconds|duration }}" inputmode="numeric" required></label>{% endfor %}
+    <div class="schedule-list">
+      {% for item in schedule %}
+        <div class="schedule-row">
+          <div class="schedule-day">
+            <strong>{{ item.name }}</strong>
+            <span class="muted">{{ item.seconds|duration }} elvárt idő</span>
+          </div>
+          <div class="form-row">
+            <label>Érkezés
+              <input type="time" step="1" name="arrival_{{ item.weekday }}" value="{{ item.arrival or '' }}">
+            </label>
+            <label>Távozás
+              <input type="time" step="1" name="departure_{{ item.weekday }}" value="{{ item.departure or '' }}">
+            </label>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
     <button class="button primary" type="submit">Beosztás mentése</button>
   </form>
-  <a class="back-link" href="{{ url_for('admin_users') }}">← Vissza a felhasználókhoz</a>
+  <a class="back-link" href="{{ url_for('dashboard') if own_schedule else url_for('admin_users') }}">← {% if own_schedule %}Vissza a napi rögzítéshez{% else %}Vissza a felhasználókhoz{% endif %}</a>
 </section>
 {% endblock %}
