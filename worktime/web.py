@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from flask import (
     Flask,
     abort,
+    current_app,
     flash,
     g,
     redirect,
@@ -38,6 +39,7 @@ from .core import (
 )
 from .db import add_default_schedule, get_db, init_app
 from .exporter import build_export
+from .importer import WorkbookImportError, import_export_workbook
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -55,6 +57,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         SEED_USER_LOGIN=os.environ.get("SEED_USER_LOGIN", ""),
         SEED_USER_DISPLAY_NAME=os.environ.get("SEED_USER_DISPLAY_NAME", "Importált felhasználó"),
         SEED_USER_PASSWORD=os.environ.get("SEED_USER_PASSWORD", ""),
+        MAX_CONTENT_LENGTH=8 * 1024 * 1024,
     )
     if test_config:
         app.config.update(test_config)
@@ -725,6 +728,58 @@ def create_app(test_config: dict | None = None) -> Flask:
             as_attachment=True,
             download_name=f"munkaido-{suffix}.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.route("/import", methods=["GET", "POST"])
+    @login_required
+    def import_xlsx():
+        import_errors: list[str] = []
+        selected_mode = request.form.get("mode", "skip")
+        if request.method == "POST":
+            upload = request.files.get("file")
+            if selected_mode not in ("skip", "overwrite"):
+                abort(400)
+            if not upload or not upload.filename:
+                import_errors.append("Válassz ki egy .xlsx fájlt.")
+            elif not upload.filename.lower().endswith(".xlsx"):
+                import_errors.append("Csak .xlsx formátumú Excel-fájl tölthető fel.")
+            else:
+                db = get_db()
+                try:
+                    result = import_export_workbook(
+                        db,
+                        g.user["id"],
+                        upload.stream,
+                        overwrite=selected_mode == "overwrite",
+                    )
+                    db.commit()
+                    details = [f'{result["created"]} új nap importálva']
+                    if result["updated"]:
+                        details.append(f'{result["updated"]} meglévő nap felülírva')
+                    if result["skipped"]:
+                        details.append(f'{result["skipped"]} meglévő nap kihagyva')
+                    allowance_changes = result["allowances_created"] + result["allowances_updated"]
+                    if allowance_changes:
+                        details.append(f"{allowance_changes} szabadságkeret átvéve")
+                    if result["allowances_skipped"]:
+                        details.append(
+                            f'{result["allowances_skipped"]} meglévő szabadságkeret kihagyva'
+                        )
+                    flash("Excel-import kész: " + ", ".join(details) + ".", "success")
+                    return redirect(url_for("import_xlsx"))
+                except WorkbookImportError as exc:
+                    db.rollback()
+                    import_errors = exc.errors
+                except sqlite3.Error:
+                    db.rollback()
+                    current_app.logger.exception("Az Excel-import adatbázis-művelete sikertelen")
+                    import_errors = [
+                        "Az adatokat most nem sikerült elmenteni. Az adatbázis nem változott."
+                    ]
+        return render_template(
+            "import.html",
+            import_errors=import_errors,
+            selected_mode=selected_mode,
         )
 
     @app.get("/admin/users")
