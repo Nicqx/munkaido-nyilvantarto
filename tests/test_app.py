@@ -3,11 +3,13 @@ import sqlite3
 import tempfile
 import unittest
 from datetime import date
+from io import BytesIO
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from worktime import create_app
 from worktime.core import entry_metrics
+from worktime.importer import DETAIL_HEADERS, LEGACY_DETAIL_HEADERS
 
 
 class AppTests(unittest.TestCase):
@@ -390,7 +392,212 @@ class AppTests(unittest.TestCase):
             handle.write(response.data)
         workbook = load_workbook(target, read_only=True)
         self.assertEqual(workbook.sheetnames, ["Munkaidőadatok", "Havi összesítő", "Éves összesítő", "Információ"])
+        self.assertEqual(
+            tuple(cell.value for cell in workbook["Munkaidőadatok"][1]),
+            DETAIL_HEADERS,
+        )
+        info = {
+            row[0].value: row[1].value
+            for row in workbook["Információ"].iter_rows(min_row=2, max_col=2)
+        }
+        self.assertEqual(info["Importformátum verzió"], 1)
         workbook.close()
+
+    def test_export_can_be_imported_back_with_entries_and_leave_allowance(self):
+        self.login()
+        self.client.post(
+            "/entry/save",
+            data={
+                "work_date": "2026-09-07",
+                "arrival_time": "08:00:00",
+                "departure_time": "18:00:00",
+                "break_time": "00:15:00",
+                "note": "=nem Excel-képlet",
+            },
+        )
+        self.client.post(
+            "/entry/save",
+            data={
+                "work_date": "2026-09-08",
+                "arrival_time": "12:00:00",
+                "departure_time": "16:00:00",
+                "break_time": "00:05:00",
+                "note": "fél nap",
+            },
+        )
+        self.client.post(
+            "/entry/leave",
+            data={"work_date": "2026-09-08", "kind": "leave_half_am"},
+        )
+        self.client.post(
+            "/entry/leave",
+            data={"work_date": "2026-09-09", "kind": "leave_full"},
+        )
+        self.client.post("/leave", data={"year": "2026", "allowance": "25,5"})
+
+        exported = self.client.get("/export.xlsx?year=2026").data
+        workbook = load_workbook(BytesIO(exported), data_only=False)
+        self.assertEqual(workbook["Munkaidőadatok"]["H2"].data_type, "s")
+        workbook.close()
+
+        with self.app.app_context():
+            from worktime.db import get_db
+            db = get_db()
+            user_id = db.execute(
+                "SELECT id FROM users WHERE login = ?", (self.SEED_LOGIN,)
+            ).fetchone()["id"]
+            db.execute("DELETE FROM work_entries WHERE user_id = ?", (user_id,))
+            db.execute("DELETE FROM leave_allowances WHERE user_id = ?", (user_id,))
+            db.commit()
+
+        response = self.client.post(
+            "/import",
+            data={
+                "mode": "skip",
+                "file": (BytesIO(exported), "munkaido-2026.xlsx"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertIn("3 új nap importálva".encode(), response.data)
+        self.assertIn("1 szabadságkeret átvéve".encode(), response.data)
+
+        with self.app.app_context():
+            from worktime.db import get_db
+            db = get_db()
+            rows = db.execute(
+                """
+                SELECT work_date, arrival_time, departure_time, break_seconds,
+                       day_type, expected_seconds_override, note
+                FROM work_entries WHERE user_id = ? ORDER BY work_date
+                """,
+                (user_id,),
+            ).fetchall()
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(
+                tuple(rows[0]),
+                ("2026-09-07", "08:00:00", "18:00:00", 900, "work", None, "=nem Excel-képlet"),
+            )
+            self.assertEqual(rows[1]["day_type"], "leave_half_am")
+            self.assertEqual(rows[1]["break_seconds"], 300)
+            self.assertEqual(rows[2]["day_type"], "leave_full")
+            allowance = db.execute(
+                "SELECT allowance_half_days FROM leave_allowances WHERE user_id = ? AND year = 2026",
+                (user_id,),
+            ).fetchone()
+            self.assertEqual(allowance["allowance_half_days"], 51)
+
+    def test_import_skips_existing_dates_unless_overwrite_is_selected(self):
+        self.login()
+        original = {
+            "work_date": "2026-10-05",
+            "arrival_time": "08:00:00",
+            "departure_time": "18:00:00",
+            "break_time": "00:00:00",
+            "note": "exportált érték",
+        }
+        self.client.post("/entry/save", data=original)
+        exported = self.client.get("/export.xlsx?year=2026").data
+        changed = dict(original, arrival_time="09:00:00", note="kézzel módosított")
+        self.client.post("/entry/save", data=changed)
+
+        response = self.client.post(
+            "/import",
+            data={"mode": "skip", "file": (BytesIO(exported), "export.xlsx")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertIn("1 meglévő nap kihagyva".encode(), response.data)
+
+        with self.app.app_context():
+            from worktime.db import get_db
+            row = get_db().execute(
+                "SELECT arrival_time, note FROM work_entries WHERE work_date = '2026-10-05'"
+            ).fetchone()
+            self.assertEqual(tuple(row), ("09:00:00", "kézzel módosított"))
+
+        response = self.client.post(
+            "/import",
+            data={"mode": "overwrite", "file": (BytesIO(exported), "export.xlsx")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertIn("1 meglévő nap felülírva".encode(), response.data)
+        with self.app.app_context():
+            from worktime.db import get_db
+            row = get_db().execute(
+                "SELECT arrival_time, note FROM work_entries WHERE work_date = '2026-10-05'"
+            ).fetchone()
+            self.assertEqual(tuple(row), ("08:00:00", "exportált érték"))
+
+    def test_invalid_import_is_atomic(self):
+        self.login()
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Munkaidőadatok"
+        sheet.append(list(DETAIL_HEADERS))
+        sheet.append([
+            date(2026, 11, 2), "Hétfő", "Munkanap", "08:00:00", "16:00:00",
+            "00:00:00", "", "jó sor", "", "", "", "",
+        ])
+        sheet.append([
+            date(2026, 11, 3), "Kedd", "Munkanap", "18:00:00", "08:00:00",
+            "00:00:00", "", "hibás sor", "", "", "", "",
+        ])
+        file_data = BytesIO()
+        workbook.save(file_data)
+        file_data.seek(0)
+
+        response = self.client.post(
+            "/import",
+            data={"mode": "skip", "file": (file_data, "hibas.xlsx")},
+            content_type="multipart/form-data",
+        )
+        self.assertIn("az adatbázis nem változott".encode(), response.data)
+        self.assertIn("a távozás nem lehet korábbi".encode(), response.data)
+        with self.app.app_context():
+            from worktime.db import get_db
+            count = get_db().execute(
+                "SELECT COUNT(*) FROM work_entries WHERE work_date IN ('2026-11-02', '2026-11-03')"
+            ).fetchone()[0]
+            self.assertEqual(count, 0)
+
+    def test_version_1_2_export_can_also_be_imported(self):
+        self.login()
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Munkaidőadatok"
+        sheet.append(list(LEGACY_DETAIL_HEADERS))
+        sheet.append([
+            date(2026, 12, 1), "Kedd", "Munkanap", "08:00:00", "16:00:00",
+            "00:10:00", "07:50:00", "08:00:00", "−00:10:00", -0.1667,
+            "régi export",
+        ])
+        file_data = BytesIO()
+        workbook.save(file_data)
+        file_data.seek(0)
+
+        response = self.client.post(
+            "/import",
+            data={"mode": "skip", "file": (file_data, "regi-export.xlsx")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertIn("1 új nap importálva".encode(), response.data)
+        with self.app.app_context():
+            from worktime.db import get_db
+            row = get_db().execute(
+                """
+                SELECT break_seconds, expected_seconds_override, note
+                FROM work_entries WHERE work_date = '2026-12-01'
+                """
+            ).fetchone()
+            self.assertEqual(tuple(row), (600, 8 * 3600, "régi export"))
+
+    def test_import_requires_login(self):
+        response = self.client.get("/import")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login", response.headers["Location"])
 
 
 if __name__ == "__main__":
