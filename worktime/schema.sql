@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS work_schedules (
     user_id INTEGER NOT NULL,
     weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
     expected_seconds INTEGER NOT NULL DEFAULT 0 CHECK (expected_seconds >= 0),
+    default_arrival_time TEXT,
+    default_departure_time TEXT,
     PRIMARY KEY (user_id, weekday),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
