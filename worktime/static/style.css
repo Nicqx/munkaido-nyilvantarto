@@ -55,6 +55,7 @@ h2 { font-size: 1.25rem; }
 
 .card { padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
 .auth-card, .narrow-card { width: min(480px, 100%); margin: 7vh auto 0; }
+.schedule-card { width: min(780px, 100%); margin: 0 auto; }
 .auth-card h1, .narrow-card h1 { margin-bottom: 10px; }
 .auth-link { margin: 20px 0 0; text-align: center; }
 
@@ -104,6 +105,23 @@ input:focus, textarea:focus, select:focus { outline: 3px solid rgba(36,90,115,.1
 .kpi { min-height: 115px; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: white; box-shadow: 0 7px 22px rgba(20,47,64,.05); }
 .kpi span { display: block; min-height: 2.4em; color: var(--muted); font-size: .84rem; font-weight: 650; }
 .kpi strong { display: block; margin-top: 8px; color: #123149; font-size: clamp(1.25rem, 2vw, 1.7rem); font-variant-numeric: tabular-nums; }
+
+.weekly-fill-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  margin-bottom: 20px;
+}
+.weekly-fill-card p:last-child { max-width: 760px; margin-bottom: 0; }
+.weekly-fill-card form { flex: 0 0 auto; margin: 0; }
+.weekly-fill-card button:disabled { cursor: not-allowed; }
+
+.schedule-list { display: grid; gap: 10px; }
+.schedule-row {
+  display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: end;
+  padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #f9fbfc;
+}
+.schedule-day { align-self: center; }
+.schedule-day strong, .schedule-day span { display: block; }
+.schedule-day span { margin-top: 4px; font-size: .82rem; }
 
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(290px, .75fr); gap: 20px; align-items: start; }
 .section-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
@@ -181,6 +199,10 @@ tbody tr:hover { background: #f9fbfc; }
   .kpi span { font-size: .76rem; }
   .kpi strong { font-size: 1.14rem; }
   .quick-actions, .leave-actions, .form-row { grid-template-columns: 1fr; }
+  .weekly-fill-card { align-items: stretch; flex-direction: column; gap: 16px; }
+  .weekly-fill-card .button { width: 100%; }
+  .schedule-row { grid-template-columns: 1fr; gap: 12px; }
+  .schedule-row .form-row { grid-template-columns: 1fr 1fr; }
   .quick-actions form:only-child { grid-column: auto; }
   .month-nav { display: grid; grid-template-columns: 1fr 1fr; }
   .month-nav form { grid-column: 1 / -1; grid-row: 1; }
@@ -197,4 +219,8 @@ tbody tr:hover { background: #f9fbfc; }
   .year-form { width: 100%; }
   .year-form input { flex: 1; }
   .inline-actions { flex-wrap: wrap; }
+}
+
+@media (max-width: 420px) {
+  .schedule-row .form-row { grid-template-columns: 1fr; }
 }
