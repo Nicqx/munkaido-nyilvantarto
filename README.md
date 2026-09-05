@@ -1,8 +1,8 @@
 # Munkaidő-nyilvántartó
 
-Verzió: **1.2.0**
+Verzió: **1.3.0**
 
-Az 1.2.0-s verzióban minden felhasználónak saját heti alapbeosztása lehet, alapértelmezett érkezési és távozási időkkel. A kiválasztott hét üres, már elérkezett munkanapjai egyetlen gombbal pótolhatók.
+Az 1.3.0-s verzióban az alkalmazás saját Excel-exportja közvetlenül vissza is tölthető. Az import alapból nem írja felül a már meglévő napokat, de ez külön bekapcsolható.
 
 Mobiltelefonon és asztali gépen használható, Dockerben futó munkaidő-nyilvántartó.
 
@@ -21,7 +21,7 @@ Fő funkciók:
 - magyar munkaszüneti napok és munkanap-áthelyezések;
 - adminisztrátori jelszó-visszaállítás;
 - adminisztrátori felhasználónév-módosítás és teljes fióktörlés;
-- Excel-export;
+- egymással azonos formátumú Excel-export és -import;
 - az átadott 2026-os Excel-adatok automatikus, egyszeri importálása.
 
 ## Belépési adatok
@@ -157,7 +157,7 @@ Az SQLite a működés során `munkaido.db-wal` és `munkaido.db-shm` segédfáj
    docker compose up -d
    ```
 
-## Adatbázis és Excel-import
+## Adatbázis és kezdeti Excel-import
 
 Az adatbázis helye:
 
@@ -178,6 +178,32 @@ Ha teljesen üres adatbázissal szeretnél indulni, még az első indítás elő
 ```text
 IMPORT_SEED_EXCEL=0
 ```
+
+## Kézi Excel-export és -import
+
+A `Statisztika` oldalon letöltött `.xlsx` fájl egyben a hivatalos importsablon is. A fájl az `Import` menüpontban tölthető vissza, mindig a belépett felhasználó adataihoz.
+
+Az importálható mezők a `Munkaidőadatok` munkalap első nyolc oszlopában vannak:
+
+| Oszlop | Tartalom |
+|---|---|
+| Dátum | A munkanap dátuma |
+| Nap | Tájékoztató napnév; importáláskor nem ez határozza meg a dátumot |
+| Típus | Munkanap, egész/fél nap szabadság vagy nem számolt nap |
+| Érkezés | Óra, perc, másodperc |
+| Távozás | Óra, perc, másodperc |
+| Kint töltött idő | A ledolgozott időből levonandó összes idő |
+| Egyedi elvárt idő | Csak az adott napra érvényes felülírás; üresen a heti beosztás számít |
+| Megjegyzés | Szabad szöveges megjegyzés |
+
+A további oszlopok számított értékek, az alkalmazás importálás után újraszámolja őket. Az `Éves összesítő` munkalapon szereplő szabadságkeret szintén átvehető. A heti beosztást az import nem módosítja.
+
+Két ütközéskezelés választható:
+
+- `Maradjanak változatlanok`: ez az alapértelmezett és ajánlott mód; a már létező dátumokat kihagyja;
+- `Írja felül őket`: az Excelben szereplő dátumok korábbi adatait lecseréli.
+
+A teljes fájlt az alkalmazás mentés előtt ellenőrzi. Ha akár egy importálandó sor hibás, sem a munkanapok, sem a szabadságkeretek nem változnak. Egy fájl legfeljebb 8 MB és 5000 munkanap lehet. A korábbi, 1.2.0-s alkalmazásból letöltött exportok is visszatölthetők.
 
 ## Munkaidő-számítás
 
