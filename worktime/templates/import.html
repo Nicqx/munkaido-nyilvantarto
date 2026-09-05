@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Excel-import · Munkaidő{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Adatok visszatöltése</p>
+    <h1>Excel-import</h1>
+  </div>
+</div>
+
+<div class="two-column import-grid">
+  <section class="card">
+    <p class="muted">Az alkalmazásból letöltött Excel-export közvetlenül visszatölthető. Az import mindig a jelenleg belépett felhasználóhoz kerül.</p>
+
+    {% if import_errors %}
+      <div class="form-error" role="alert">
+        <strong>A fájl nem lett importálva, az adatbázis nem változott.</strong>
+        <ul class="error-list">
+          {% for error in import_errors[:20] %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+        {% if import_errors|length > 20 %}
+          <p>További {{ import_errors|length - 20 }} hiba található a fájlban.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="stack-form">
+      <label>
+        Excel-fájl
+        <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        <span class="field-hint">Legfeljebb 8 MB-os .xlsx fájl.</span>
+      </label>
+
+      <label>
+        Mi történjen a már létező dátumokkal?
+        <select name="mode">
+          <option value="skip" {% if selected_mode != 'overwrite' %}selected{% endif %}>Maradjanak változatlanok (ajánlott)</option>
+          <option value="overwrite" {% if selected_mode == 'overwrite' %}selected{% endif %}>Írja felül őket az Excel adataival</option>
+        </select>
+      </label>
+
+      <div class="notice warning-text">
+        Felülíráskor az Excelben szereplő dátumok érkezése, távozása, kint töltött ideje, naptípusa, egyedi elvárt ideje és megjegyzése lecserélődik.
+      </div>
+
+      <button class="button primary full" type="submit">Importálás indítása</button>
+    </form>
+  </section>
+
+  <aside class="card import-help">
+    <p class="eyebrow">Helyes formátum</p>
+    <h2>Az export egyben importsablon</h2>
+    <p class="muted">Töltsd le az adatokat, szerkeszd szükség esetén a <strong>Munkaidőadatok</strong> munkalap első nyolc oszlopát, majd ugyanazt a fájlt töltsd vissza.</p>
+    <a class="button primary full" href="{{ url_for('export_xlsx', year='all') }}">Minden adat letöltése</a>
+    <ul class="clean-list compact-list">
+      <li><span>A számított oszlopokat nem kell módosítani.</span></li>
+      <li><span>A szabadságkeret az Éves összesítőből is átvehető.</span></li>
+      <li><span>Hibás sor esetén egyetlen sor sem kerül be.</span></li>
+      <li><span>A 1.2.0-s exportfájlok is használhatók.</span></li>
+    </ul>
+  </aside>
+</div>
+{% endblock %}
