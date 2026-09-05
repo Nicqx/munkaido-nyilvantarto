@@ -170,6 +170,13 @@ tbody tr:hover { background: #f9fbfc; }
 .negative-bar { background: #d36359; }
 .export-card { display: grid; gap: 12px; }
 .export-card p { margin: 0; }
+.import-grid { grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); }
+.import-help { display: grid; gap: 14px; }
+.import-help p { margin: 0; }
+.error-list { margin: 10px 0 0; padding-left: 22px; }
+.error-list li + li { margin-top: 6px; }
+.compact-list { margin-top: 4px; }
+.compact-list li { align-items: start; }
 .clean-list { list-style: none; margin: 18px 0 0; padding: 0; }
 .clean-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #e8eef1; }
 .calendar-list { max-height: 520px; overflow: auto; }
