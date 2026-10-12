@@ -599,6 +599,28 @@ class AppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login", response.headers["Location"])
 
+    def test_traefik_prefix_is_preserved_in_generated_links(self):
+        prefixed_app = create_app({
+            "TESTING": True,
+            "SECRET_KEY": "prefix-test-secret",
+            "DATABASE": os.path.join(self.tmp.name, "prefix.db"),
+            "IMPORT_SEED_EXCEL": False,
+            "ADMIN_PASSWORD": self.ADMIN_PASSWORD,
+            "TRUST_PROXY_HEADERS": True,
+            "APPLICATION_ROOT": "/munkaido",
+        })
+        response = prefixed_app.test_client().get(
+            "/login",
+            headers={
+                "X-Forwarded-Prefix": "/munkaido",
+                "X-Forwarded-Proto": "https",
+                "X-Forwarded-Host": "pmqxyz.hopto.org",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'href="/munkaido/static/style.css"', response.data)
+        self.assertIn(b'href="/munkaido/register"', response.data)
+
 
 if __name__ == "__main__":
     unittest.main()
