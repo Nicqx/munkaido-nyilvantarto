@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: munkaido-data-pv
+  labels:
+    app.kubernetes.io/name: munkaido-nyilvantarto
+    app.kubernetes.io/managed-by: munkaido-repo
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: munkaido-hostpath
+  volumeMode: Filesystem
+  hostPath:
+    path: /var/lib/munkaido-nyilvantarto/data
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - nuc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: munkaido-data
+  labels:
+    app.kubernetes.io/name: munkaido-nyilvantarto
+    app.kubernetes.io/managed-by: munkaido-repo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: munkaido-hostpath
+  volumeName: munkaido-data-pv
+  resources:
+    requests:
+      storage: 1Gi
