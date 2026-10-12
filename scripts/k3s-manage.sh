@@ -13,7 +13,7 @@ TARGET=""
 DRY_RUN=0
 
 usage() {
-  echo "Használat: $0 {migrate|update|status|start|stop|backup} --target nuc [--dry-run]" >&2
+  echo "Használat: $0 {migrate|resume|update|status|start|stop|backup} --target nuc [--dry-run]" >&2
   exit 2
 }
 
@@ -37,11 +37,11 @@ done
 
 [[ "$TARGET" == "nuc" ]] || { echo "HIBA: ez a telepítés kizárólag a nuc célgépre készült." >&2; exit 1; }
 case "$COMMAND" in
-  migrate|update|status|start|stop|backup) ;;
+  migrate|resume|update|status|start|stop|backup) ;;
   *) usage ;;
 esac
-if [[ "$DRY_RUN" == 1 && ! "$COMMAND" =~ ^(migrate|update)$ ]]; then
-  echo "HIBA: a --dry-run csak migrate és update művelethez használható." >&2
+if [[ "$DRY_RUN" == 1 && ! "$COMMAND" =~ ^(migrate|resume|update)$ ]]; then
+  echo "HIBA: a --dry-run csak migrate, resume és update művelethez használható." >&2
   exit 1
 fi
 
@@ -107,8 +107,14 @@ wait_ready() {
   pod="$(kube get pod -n "$NAMESPACE" -l app.kubernetes.io/name="$DEPLOYMENT" -o jsonpath='{.items[0].metadata.name}')"
   kube exec -n "$NAMESPACE" "$pod" -c web -- \
     python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()" >/dev/null
-  kube get endpointslice -n "$NAMESPACE" -l kubernetes.io/service-name="$SERVICE" \
-    -o jsonpath='{range .items[*].endpoints[*]}{.conditions.ready}{"\n"}{end}' | grep -qx True
+  local endpoint_states
+  endpoint_states="$(kube get endpointslice -n "$NAMESPACE" \
+    -l kubernetes.io/service-name="$SERVICE" \
+    -o jsonpath='{range .items[*].endpoints[*]}{.conditions.ready}{"\n"}{end}')"
+  if ! grep -Eiq '^true$' <<< "$endpoint_states"; then
+    echo "HIBA: a munkaido Service mögött nincs Ready EndpointSlice endpoint." >&2
+    return 1
+  fi
 }
 
 pod_name() {
@@ -163,19 +169,38 @@ verify_cluster
 require_config
 validate_manifests
 
-if [[ "$COMMAND" == "migrate" ]]; then
+if [[ "$COMMAND" == "migrate" || "$COMMAND" == "resume" ]]; then
   [[ -f "$ROOT_DIR/data/munkaido.db" ]] || {
     echo "HIBA: nem található a Docker adatbázisa: $ROOT_DIR/data/munkaido.db" >&2
     exit 1
   }
   python3 "$ROOT_DIR/scripts/db_tool.py" check "$ROOT_DIR/data/munkaido.db" >/dev/null
-  if kube get pvc munkaido-data -n "$NAMESPACE" --ignore-not-found -o name | grep -q .; then
-    echo "HIBA: a munkaido-data PVC már létezik; meglévő k3s telepítéshez az update parancs való." >&2
-    exit 1
-  fi
-  if sudo test -e "$HOST_DATABASE"; then
-    echo "HIBA: a céladatbázis már létezik: $HOST_DATABASE. Nem írjuk felül." >&2
-    exit 1
+  if [[ "$COMMAND" == "migrate" ]]; then
+    if kube get pvc munkaido-data -n "$NAMESPACE" --ignore-not-found -o name | grep -q .; then
+      echo "HIBA: a munkaido-data PVC már létezik; félbeszakadt migrációhoz a resume parancs való." >&2
+      exit 1
+    fi
+    if sudo test -e "$HOST_DATABASE"; then
+      echo "HIBA: a céladatbázis már létezik: $HOST_DATABASE. Nem írjuk felül." >&2
+      exit 1
+    fi
+  else
+    kube get pvc munkaido-data -n "$NAMESPACE" >/dev/null 2>&1 || {
+      echo "HIBA: nincs folytatható munkaido-data PVC; első költözéshez a migrate parancs való." >&2
+      exit 1
+    }
+    kube get deployment "$DEPLOYMENT" -n "$NAMESPACE" >/dev/null 2>&1 || {
+      echo "HIBA: nincs folytatható Deployment; első költözéshez a migrate parancs való." >&2
+      exit 1
+    }
+    [[ "$(kube get deployment "$DEPLOYMENT" -n "$NAMESPACE" -o jsonpath='{.spec.replicas}')" == "0" ]] || {
+      echo "HIBA: a resume csak nullára skálázott k3s Deployment mellett használható." >&2
+      exit 1
+    }
+    sudo test -f "$HOST_DATABASE" || {
+      echo "HIBA: hiányzik a félbeszakadt migráció céladatbázisa: $HOST_DATABASE" >&2
+      exit 1
+    }
   fi
 fi
 

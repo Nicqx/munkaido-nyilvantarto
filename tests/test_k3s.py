@@ -59,8 +59,11 @@ class K3sManifestTests(unittest.TestCase):
 
     def test_service_is_cluster_only_and_script_has_valid_bash_syntax(self):
         service = (ROOT / "k8s/base/service.yaml").read_text()
+        manager = (ROOT / "scripts/k3s-manage.sh").read_text()
         self.assertIn("type: ClusterIP", service)
         self.assertNotIn("NodePort", service)
+        self.assertIn("migrate|resume|update", manager)
+        self.assertIn("grep -Eiq '^true$'", manager)
         for script in (
             ROOT / "scripts/k3s-manage.sh",
             ROOT / "migrate-to-k3s.sh",
