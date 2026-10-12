@@ -41,6 +41,10 @@ class DatabaseMigrationTests(unittest.TestCase):
 
 
 class K3sManifestTests(unittest.TestCase):
+    def test_docker_build_context_contains_k3s_manifests(self):
+        dockerignore = (ROOT / ".dockerignore").read_text().splitlines()
+        self.assertNotIn("k8s/", dockerignore)
+
     def test_single_replica_recreate_and_retained_host_storage(self):
         deployment = (ROOT / "k8s/base/deployment.yaml").read_text()
         storage = (ROOT / "k8s/overlays/nuc/storage.yaml").read_text()
