@@ -1,6 +1,11 @@
 # Munkaidő-nyilvántartó
 
-Verzió: **1.3.0**
+Verzió: **1.4.0**
+
+Az 1.4.0-s verzió megtartja a Docker Compose futtatást, és hozzáadja a NUC-on
+futó k3s telepítést, a meglévő SQLite-adatok leállításos migrációját, az
+automatikus frissítés előtti mentést, valamint a Traefik `/munkaido/` prefix
+helyes kezelését.
 
 Az 1.3.0-s verzióban az alkalmazás saját Excel-exportja közvetlenül vissza is tölthető. Az import alapból nem írja felül a már meglévő napokat, de ez külön bekapcsolható.
 
@@ -261,6 +266,126 @@ Az admin a `Admin → Munkanaptár` oldalon további napokat vehet fel vagy mód
 A konténer a gép `1985` portján érhető el. Routeres porttovábbítás esetén ezt a portot kell a Docker-gépre irányítani.
 
 Az alkalmazás nem tartalmaz HTTPS-kiszolgálót. Nyilvános interneten a HTTP-forgalom titkosítatlan. Az adatbázisban a jelszavak egyirányú hash formában szerepelnek.
+
+## K3s telepítés és a Docker-adatok migrációja
+
+A NUC-os telepítés egyetlen példányt futtat a `default` namespace-ben:
+
+- `Deployment/munkaido-nyilvantarto`, `Recreate` frissítési stratégiával;
+- `Service/munkaido-nyilvantarto`, belső `8000` porttal;
+- statikus `PersistentVolume/munkaido-data-pv`, `Retain` házirenddel;
+- `PersistentVolumeClaim/munkaido-data`;
+- az adatbázis tényleges hostútvonala:
+  `/var/lib/munkaido-nyilvantarto/data/munkaido.db`.
+
+Az adat ezért pod- és Deployment-frissítéskor nem törlődik. A PV szándékosan
+a `nuc` node-hoz kötött. A PVC/PV törlése sem törli automatikusan a hoston lévő
+adatbázist, de kézi törlés előtt mindig készüljön külön mentés.
+
+### 1. Előzetes, módosítás nélküli ellenőrzés
+
+A repo és a jelenlegi `.env`, illetve `data/munkaido.db` ugyanazon a NUC-on
+legyen, ahol a k3s fut. A `.env` nem kerül Kubernetes manifestbe vagy Gitbe;
+a migráció helyben készít belőle `Secret/munkaido-config` erőforrást.
+
+```bash
+cd ~/codes/munkaido-nyilvantarto
+git pull --ff-only
+chmod +x migrate-to-k3s.sh update.sh scripts/k3s-manage.sh scripts/db_tool.py
+
+KUBECTL='sudo k3s kubectl' \
+K3S='sudo k3s' \
+./migrate-to-k3s.sh --target nuc --dry-run
+```
+
+A dry-run ellenőrzi:
+
+- hogy a kube-context az egy node-os, Ready állapotú `nuc`/AMD64 cluster;
+- hogy megvan a `.env` és a Docker-adatbázis;
+- hogy az SQLite `quick_check` sikeres;
+- hogy a k3s API elfogadja a Kustomize manifesteket;
+- hogy nincs már korábbi `munkaido-data` PVC vagy céladatbázis.
+
+Nem állít le konténert, nem épít image-et és nem ír a clusterbe.
+
+### 2. Leállítás és adatköltöztetés
+
+```bash
+KUBECTL='sudo k3s kubectl' \
+K3S='sudo k3s' \
+./migrate-to-k3s.sh --target nuc
+```
+
+A script a következő sorrendet tartja:
+
+1. helyben felépíti és a k3s containerd-be importálja az AMD64 image-et;
+2. elkészíti a Kubernetes Secretet a meglévő `.env` fájlból;
+3. ha fut, csak a `munkaido` Docker Compose szolgáltatást állítja le;
+4. a SQLite backup API-val konzisztens, `0600` jogosultságú mentést készít a
+   `backups/munkaido-pre-k3s-<időpont>.db` fájlba;
+5. a mentést a megtartott hosttárhelyre másolja;
+6. telepíti a PV/PVC/Deployment/Service erőforrásokat;
+7. ellenőrzi a másolat SHA-256 ellenőrzőösszegét, a rolloutot, a health
+   endpointot, a Ready EndpointSlice-ot és a felhasználó-, munkaidő- és
+   szabadságrekordok számát.
+
+Ha a folyamat a sikeres ellenőrzés előtt hibázik, a k3s Deploymentet nullára
+állítja, és a korábban futó Docker-példány újraindítását megkísérli. Az eredeti
+`data/munkaido.db` fájlt nem módosítja és nem törli.
+
+### 3. HTTPS útvonal publikálása
+
+A sikeres alkalmazásmigráció után az `ingress` repóban:
+
+```bash
+cd ~/codes/ingress
+git pull --ff-only
+
+KUBECTL='sudo k3s kubectl' \
+python3 scripts/manage.py publish-munkaido --target nuc --dry-run
+
+KUBECTL='sudo k3s kubectl' \
+python3 scripts/manage.py publish-munkaido --target nuc
+```
+
+Az eredmény:
+
+```text
+https://pmqxyz.hopto.org/munkaido/
+```
+
+A központi ingress a `/munkaido` előtagot levágja, és
+`X-Forwarded-Prefix: /munkaido` fejlécet ad. Az alkalmazás ezt csak a k3s
+telepítésben bízza meg, így a generált linkek, űrlapok és statikus fájlok címei
+továbbra is a `/munkaido/` útvonalon maradnak.
+
+Az új útvonal ugyanazt a 443-as Traefik/TLS bejáratot használja, mint a többi
+alkalmazás. Sikeres külső próba után a router régi 1985-ös porttovábbítása
+megszüntethető.
+
+### K3s frissítés, mentés és vezérlés
+
+Frissítés előtt a script konzisztens adatbázismentést készít, újraépíti és
+importálja az image-et, frissíti a helyi Secretet, majd megvárja az új podot:
+
+```bash
+KUBECTL='sudo k3s kubectl' K3S='sudo k3s' ./update.sh --target nuc --dry-run
+KUBECTL='sudo k3s kubectl' K3S='sudo k3s' ./update.sh --target nuc
+```
+
+További műveletek:
+
+```bash
+KUBECTL='sudo k3s kubectl' ./scripts/k3s-manage.sh status --target nuc
+KUBECTL='sudo k3s kubectl' ./scripts/k3s-manage.sh backup --target nuc
+KUBECTL='sudo k3s kubectl' ./scripts/k3s-manage.sh stop --target nuc
+KUBECTL='sudo k3s kubectl' ./scripts/k3s-manage.sh start --target nuc
+```
+
+A `stop` csak nullára skálázza a Deploymentet; sem a PVC-t, sem az adatot nem
+törli. A régi Docker Compose konténer a sikeres migráció után leállítva marad,
+így gyors visszalépési lehetőségként még rendelkezésre áll. Csak a k3s és a
+HTTPS útvonal teljes ellenőrzése után indokolt a `docker compose down`.
 
 ## Hibaelhárítás
 
