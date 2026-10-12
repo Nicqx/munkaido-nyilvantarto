@@ -12,6 +12,12 @@ COPY . .
 RUN mkdir -p /app/data
 RUN python -m unittest discover -s tests -v
 
+RUN groupadd --gid 10001 app && \
+    useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app && \
+    chown -R 10001:10001 /app
+
+USER 10001:10001
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
