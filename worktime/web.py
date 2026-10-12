@@ -20,6 +20,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .core import (
@@ -57,10 +58,25 @@ def create_app(test_config: dict | None = None) -> Flask:
         SEED_USER_LOGIN=os.environ.get("SEED_USER_LOGIN", ""),
         SEED_USER_DISPLAY_NAME=os.environ.get("SEED_USER_DISPLAY_NAME", "Importált felhasználó"),
         SEED_USER_PASSWORD=os.environ.get("SEED_USER_PASSWORD", ""),
+        APPLICATION_ROOT=os.environ.get("APPLICATION_ROOT", "/"),
+        TRUST_PROXY_HEADERS=os.environ.get("TRUST_PROXY_HEADERS", "0") == "1",
+        SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "0") == "1",
+        SESSION_COOKIE_SAMESITE="Lax",
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,
     )
     if test_config:
         app.config.update(test_config)
+    if app.config["TRUST_PROXY_HEADERS"]:
+        # Kizárólag a k3s/Traefik telepítés kapcsolja be. A Traefik StripPrefix
+        # middleware X-Forwarded-Prefix fejléce alapján a url_for() így a
+        # /munkaido előtagot is beleírja a linkekbe és az űrlapcélokba.
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app,
+            x_for=1,
+            x_proto=1,
+            x_host=1,
+            x_prefix=1,
+        )
     init_app(app)
 
     @app.template_filter("duration")
