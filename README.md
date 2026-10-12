@@ -333,6 +333,21 @@ Ha a folyamat a sikeres ellenőrzés előtt hibázik, a k3s Deploymentet nullár
 állítja, és a korábban futó Docker-példány újraindítását megkísérli. Az eredeti
 `data/munkaido.db` fájlt nem módosítja és nem törli.
 
+Ha a hiba már a PV/PVC létrehozása után történt, ezeket és a céladatbázist ne
+töröld. A hiba javítása és egy új `git pull --ff-only` után a migráció külön,
+ellenőrzött folytatási móddal indítható:
+
+```bash
+KUBECTL='sudo k3s kubectl' \
+K3S='sudo k3s' \
+./scripts/k3s-manage.sh resume --target nuc
+```
+
+A `resume` csak létező PVC, létező céladatbázis és nullára skálázott k3s
+Deployment mellett fut. Ismét leállítja a közben visszaindított Docker-példányt,
+friss mentést készít annak aktuális adatbázisáról, ellenőrzött másolatot ír a
+k3s tárhelyre, majd újra elvégzi a teljes rollout- és adatellenőrzést.
+
 ### 3. HTTPS útvonal publikálása
 
 A sikeres alkalmazásmigráció után az `ingress` repóban:
