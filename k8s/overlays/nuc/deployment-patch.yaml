@@ -1,0 +1,9 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: munkaido-nyilvantarto
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nuc
