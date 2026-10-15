@@ -52,6 +52,8 @@ class K3sManifestTests(unittest.TestCase):
         self.assertIn("replicas: 1", deployment)
         self.assertIn("imagePullPolicy: Never", deployment)
         self.assertIn("readOnlyRootFilesystem: true", deployment)
+        self.assertIn("https://pmqxyz.hopto.org", deployment)
+        self.assertIn("WEBAUTHN_RP_ID", deployment)
         self.assertIn("persistentVolumeReclaimPolicy: Retain", storage)
         self.assertIn("/var/lib/munkaido-nyilvantarto/data", storage)
         self.assertIn("kubernetes.io/hostname", storage)
