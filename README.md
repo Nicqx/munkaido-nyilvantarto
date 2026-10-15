@@ -1,6 +1,11 @@
 # Munkaidő-nyilvántartó
 
-Verzió: **1.4.0**
+Verzió: **1.5.0**
+
+Az 1.5.0-s verzió passkey/WebAuthn alapú biometrikus belépést ad az
+alkalmazáshoz. A beállítás után a felhasználónév és a jelszó beírása nélkül,
+a telefon ujjlenyomat-, arc- vagy képernyőzár-ellenőrzésével lehet belépni.
+Maga a biometrikus adat nem kerül az alkalmazásba vagy az adatbázisba.
 
 Az 1.4.0-s verzió megtartja a Docker Compose futtatást, és hozzáadja a NUC-on
 futó k3s telepítést, a meglévő SQLite-adatok leállításos migrációját, az
@@ -14,6 +19,7 @@ Mobiltelefonon és asztali gépen használható, Dockerben futó munkaidő-nyilv
 Fő funkciók:
 
 - regisztráció és belépés;
+- felhasználónév nélküli biometrikus passkey-belépés;
 - másodperc pontos érkezés és távozás;
 - „Megérkeztem most” és „Távoztam most” gyorsgomb;
 - „Kiszaladok / Visszaértem” szünetmérés;
@@ -36,6 +42,26 @@ A konkrét admin- és importált felhasználói belépési adatokat a helyi `.en
 A jelszó-visszaállításkor használt érték a `DEFAULT_USER_PASSWORD` beállítás. Minden felhasználó megváltoztathatja a saját jelszavát.
 
 Már működő telepítés frissítésekor a meglévő adminfiók, felhasználók és jelszavak változatlanul megmaradnak.
+
+## Biometrikus belépés
+
+Az első passkey beállításához egyszer még jelszóval kell belépni, majd:
+
+1. nyisd meg a `Fiók` menüpontot;
+2. adj nevet a készüléknek, és nyomd meg a `Passkey hozzáadása` gombot;
+3. hagyd jóvá a telefon vagy a számítógép biometrikus/képernyőzáras kérését;
+4. a következő kijelentkezés után válaszd a `Belépés biometriával` gombot.
+
+A passkey úgynevezett felfedezhető hitelesítő adat, ezért belépéskor a
+készülék választja ki a hozzá tartozó fiókot: sem a felhasználónevet, sem a
+jelszót nem kell kitölteni. Több készülékhez külön passkey adható, és ezek a
+`Fiók` oldalon egyenként törölhetők. A jelszavas belépés és az adminisztrátori
+jelszó-visszaállítás tartalék lehetőségként megmarad.
+
+A WebAuthn normál hálózati címen HTTPS-t igényel. A k3s telepítés ehhez a
+`https://pmqxyz.hopto.org` origint és a `pmqxyz.hopto.org` RP ID-t használja.
+Helyi Docker-próbánál a böngésző `http://localhost:1985` címét kell használni;
+ezt a `WEBAUTHN_ORIGIN` és `WEBAUTHN_RP_ID` beállítások szabályozzák.
 
 ## Követelmények
 
@@ -64,6 +90,9 @@ Már működő telepítés frissítésekor a meglévő adminfiók, felhasználó
    - új adatbázis esetén add meg az `ADMIN_PASSWORD` értékét;
    - az Excel-importhoz add meg a `SEED_USER_LOGIN`, `SEED_USER_DISPLAY_NAME` és `SEED_USER_PASSWORD` értékét;
    - a jelszó-visszaállításhoz add meg a `DEFAULT_USER_PASSWORD` értékét.
+   - helyi passkey-használathoz hagyd meg a `WEBAUTHN_ORIGIN=http://localhost:1985`
+     és `WEBAUTHN_RP_ID=localhost` értékeket; publikus HTTPS-címnél ezeket a
+     tényleges domainhez kell igazítani.
 
    A saját `.env` fájlt ne töltsd fel nyilvános Git-tárolóba.
 5. Indítsd el:
@@ -265,7 +294,10 @@ Az admin a `Admin → Munkanaptár` oldalon további napokat vehet fel vagy mód
 
 A konténer a gép `1985` portján érhető el. Routeres porttovábbítás esetén ezt a portot kell a Docker-gépre irányítani.
 
-Az alkalmazás nem tartalmaz HTTPS-kiszolgálót. Nyilvános interneten a HTTP-forgalom titkosítatlan. Az adatbázisban a jelszavak egyirányú hash formában szerepelnek.
+Az alkalmazás nem tartalmaz saját HTTPS-kiszolgálót. Nyilvános interneten a
+Traefikhez hasonló HTTPS reverse proxy szükséges; a biometrikus passkey-belépés
+HTTP-n nem működik. Az adatbázisban a jelszavak egyirányú hash formában, a
+passkeyk pedig nyilvános kulcsként szerepelnek.
 
 ## K3s telepítés és a Docker-adatok migrációja
 

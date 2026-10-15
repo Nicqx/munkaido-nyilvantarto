@@ -44,6 +44,10 @@ spec:
               value: "1"
             - name: SESSION_COOKIE_SECURE
               value: "1"
+            - name: WEBAUTHN_ORIGIN
+              value: https://pmqxyz.hopto.org
+            - name: WEBAUTHN_RP_ID
+              value: pmqxyz.hopto.org
             - name: TMPDIR
               value: /tmp
           securityContext:

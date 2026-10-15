@@ -1,9 +1,12 @@
 import os
+import base64
 import sqlite3
 import tempfile
 import unittest
 from datetime import date
 from io import BytesIO
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
 
@@ -31,6 +34,8 @@ class AppTests(unittest.TestCase):
             "SEED_USER_LOGIN": self.SEED_LOGIN,
             "SEED_USER_DISPLAY_NAME": "Teszt importfelhasználó",
             "SEED_USER_PASSWORD": self.SEED_PASSWORD,
+            "WEBAUTHN_ORIGIN": "http://localhost",
+            "WEBAUTHN_RP_ID": "localhost",
         })
         self.client = self.app.test_client()
 
@@ -46,6 +51,103 @@ class AppTests(unittest.TestCase):
         response = self.login()
         self.assertEqual(response.status_code, 200)
         self.assertIn("Napi rögzítés".encode(), response.data)
+
+    def test_passkey_registration_requires_login_and_creates_discoverable_key(self):
+        denied = self.client.post("/api/passkeys/register/options")
+        self.assertEqual(denied.status_code, 302)
+
+        self.login()
+        options_response = self.client.post("/api/passkeys/register/options")
+        self.assertEqual(options_response.status_code, 200)
+        options = options_response.get_json()
+        self.assertEqual(
+            options["publicKey"]["authenticatorSelection"]["residentKey"],
+            "required",
+        )
+        self.assertEqual(
+            options["publicKey"]["authenticatorSelection"]["userVerification"],
+            "required",
+        )
+        verification = SimpleNamespace(
+            credential_id=b"registered-passkey",
+            credential_public_key=b"public-key",
+            sign_count=0,
+            credential_device_type="multi_device",
+            credential_backed_up=True,
+        )
+        with patch("worktime.web.verify_registration", return_value=verification):
+            completed = self.client.post(
+                "/api/passkeys/register/complete",
+                json={
+                    "ceremony_id": options["ceremony_id"],
+                    "name": "Teszttelefon",
+                    "credential": {
+                        "id": "cmVnaXN0ZXJlZC1wYXNza2V5",
+                        "response": {"transports": ["internal"]},
+                    },
+                },
+            )
+        self.assertEqual(completed.status_code, 200)
+        with self.app.app_context():
+            from worktime.db import get_db
+
+            saved = get_db().execute(
+                "SELECT name, credential_id FROM passkeys"
+            ).fetchone()
+            self.assertEqual(saved["name"], "Teszttelefon")
+            self.assertEqual(saved["credential_id"], b"registered-passkey")
+
+    def test_passkey_login_identifies_user_without_username(self):
+        credential_id = b"username-free-passkey"
+        encoded_id = base64.urlsafe_b64encode(credential_id).decode().rstrip("=")
+        with self.app.app_context():
+            from worktime.db import get_db
+
+            user_id = get_db().execute(
+                "SELECT id FROM users WHERE login = ?", (self.SEED_LOGIN,)
+            ).fetchone()["id"]
+            get_db().execute(
+                """
+                INSERT INTO passkeys(
+                    user_id, name, credential_id, public_key, sign_count,
+                    transports_json, device_type, backed_up, created_at
+                ) VALUES (?, 'Telefon', ?, ?, 3, '[]', 'multi_device', 1, ?)
+                """,
+                (user_id, credential_id, b"public-key", "2026-10-15T10:00:00+00:00"),
+            )
+            get_db().commit()
+
+        options_response = self.client.post("/api/passkeys/auth/options")
+        options = options_response.get_json()
+        self.assertEqual(options_response.status_code, 200)
+        self.assertEqual(options["publicKey"]["allowCredentials"], [])
+        self.assertEqual(options["publicKey"]["userVerification"], "required")
+
+        with patch(
+            "worktime.web.verify_authentication",
+            return_value=SimpleNamespace(new_sign_count=4),
+        ):
+            completed = self.client.post(
+                "/api/passkeys/auth/complete",
+                json={
+                    "ceremony_id": options["ceremony_id"],
+                    "credential": {"id": encoded_id},
+                },
+            )
+        self.assertEqual(completed.status_code, 200)
+        self.assertEqual(completed.get_json()["redirect"], "/dashboard")
+        with self.client.session_transaction() as login_session:
+            self.assertEqual(login_session["user_id"], user_id)
+
+        self.client.post("/logout")
+        reused = self.client.post(
+            "/api/passkeys/auth/complete",
+            json={
+                "ceremony_id": options["ceremony_id"],
+                "credential": {"id": encoded_id},
+            },
+        )
+        self.assertEqual(reused.status_code, 400)
 
     def test_registration_creates_user_and_admin_can_see_it(self):
         response = self.client.post(
@@ -619,7 +721,9 @@ class AppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'href="/munkaido/static/style.css"', response.data)
+        self.assertIn(b'src="/munkaido/static/passkeys.js"', response.data)
         self.assertIn(b'href="/munkaido/register"', response.data)
+        self.assertIn(b'"/munkaido/api/passkeys/auth/options"', response.data)
 
 
 if __name__ == "__main__":
