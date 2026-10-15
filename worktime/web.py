@@ -22,6 +22,7 @@ from flask import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
+from webauthn.helpers.exceptions import WebAuthnException
 
 from .core import (
     DAY_NAMES,
@@ -41,6 +42,15 @@ from .core import (
 from .db import add_default_schedule, get_db, init_app
 from .exporter import build_export
 from .importer import WorkbookImportError, import_export_workbook
+from .passkey_store import add_passkey, consume_challenge, create_challenge, list_passkeys
+from .passkeys import (
+    authentication_options_json,
+    credential_id_from_json,
+    enum_value,
+    registration_options_json,
+    verify_authentication,
+    verify_registration,
+)
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -62,6 +72,10 @@ def create_app(test_config: dict | None = None) -> Flask:
         TRUST_PROXY_HEADERS=os.environ.get("TRUST_PROXY_HEADERS", "0") == "1",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "0") == "1",
         SESSION_COOKIE_SAMESITE="Lax",
+        WEBAUTHN_ORIGIN=os.environ.get(
+            "WEBAUTHN_ORIGIN", "https://pmqxyz.hopto.org"
+        ).rstrip("/"),
+        WEBAUTHN_RP_ID=os.environ.get("WEBAUTHN_RP_ID", "pmqxyz.hopto.org"),
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,
     )
     if test_config:
@@ -372,6 +386,78 @@ def create_app(test_config: dict | None = None) -> Flask:
     def logout():
         session.clear()
         return redirect(url_for("login"))
+
+    @app.post("/api/passkeys/auth/options")
+    def passkey_auth_options():
+        if g.user:
+            return {"error": "Már be vagy jelentkezve."}, 400
+        ceremony_id, challenge = create_challenge(
+            get_db(), purpose="AUTH", user_id=None
+        )
+        try:
+            public_key = authentication_options_json(
+                origin=app.config["WEBAUTHN_ORIGIN"],
+                rp_id=app.config["WEBAUTHN_RP_ID"],
+                challenge=challenge,
+            )
+        except ValueError as exc:
+            current_app.logger.error("Hibás WebAuthn-konfiguráció: %s", exc)
+            return {"error": "A biometrikus belépés nincs megfelelően beállítva."}, 503
+        return {"ceremony_id": ceremony_id, "publicKey": public_key}
+
+    @app.post("/api/passkeys/auth/complete")
+    def passkey_auth_complete():
+        if g.user:
+            return {"error": "Már be vagy jelentkezve."}, 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return {"error": "Hiányos biometrikus belépési kérés."}, 400
+        ceremony_id = payload.get("ceremony_id")
+        credential = payload.get("credential")
+        if not isinstance(ceremony_id, str) or not isinstance(credential, dict):
+            return {"error": "Hiányos biometrikus belépési kérés."}, 400
+
+        db = get_db()
+        challenge_row = consume_challenge(
+            db, ceremony_id=ceremony_id, purpose="AUTH"
+        )
+        if challenge_row is None:
+            return {"error": "A biometrikus kérés lejárt. Próbáld újra."}, 400
+        try:
+            credential_id = credential_id_from_json(credential)
+        except ValueError:
+            return {"error": "A passkey nem azonosítható."}, 400
+        passkey = db.execute(
+            """
+            SELECT p.*, u.id AS account_id, u.active AS account_active
+            FROM passkeys p JOIN users u ON u.id = p.user_id
+            WHERE p.credential_id = ?
+            """,
+            (credential_id,),
+        ).fetchone()
+        if passkey is None or not passkey["account_active"]:
+            return {"error": "Ezzel a passkeyjel nem lehet belépni."}, 403
+        try:
+            verification = verify_authentication(
+                origin=app.config["WEBAUTHN_ORIGIN"],
+                rp_id=app.config["WEBAUTHN_RP_ID"],
+                credential=credential,
+                challenge=challenge_row["challenge"],
+                public_key=passkey["public_key"],
+                sign_count=passkey["sign_count"],
+            )
+        except (WebAuthnException, ValueError, TypeError) as exc:
+            current_app.logger.warning("Sikertelen passkey-belépés: %s", exc)
+            return {"error": "A biometrikus azonosítás nem sikerült."}, 403
+
+        db.execute(
+            "UPDATE passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?",
+            (verification.new_sign_count, utc_now().isoformat(), passkey["id"]),
+        )
+        db.commit()
+        session.clear()
+        session["user_id"] = passkey["account_id"]
+        return {"redirect": url_for("dashboard")}
 
     @app.get("/dashboard")
     @login_required
@@ -730,7 +816,102 @@ def create_app(test_config: dict | None = None) -> Flask:
                 get_db().commit()
                 flash("A jelszó megváltozott.", "success")
                 return redirect(url_for("dashboard"))
-        return render_template("change_password.html")
+        return render_template(
+            "change_password.html",
+            passkeys=list_passkeys(get_db(), g.user["id"]),
+        )
+
+    @app.post("/api/passkeys/register/options")
+    @login_required
+    def passkey_register_options():
+        db = get_db()
+        existing = db.execute(
+            "SELECT credential_id FROM passkeys WHERE user_id = ?",
+            (g.user["id"],),
+        ).fetchall()
+        ceremony_id, challenge = create_challenge(
+            db, purpose="REGISTER", user_id=g.user["id"]
+        )
+        try:
+            public_key = registration_options_json(
+                origin=app.config["WEBAUTHN_ORIGIN"],
+                rp_id=app.config["WEBAUTHN_RP_ID"],
+                user=g.user,
+                challenge=challenge,
+                existing_credential_ids=[row["credential_id"] for row in existing],
+            )
+        except ValueError as exc:
+            current_app.logger.error("Hibás WebAuthn-konfiguráció: %s", exc)
+            return {"error": "A biometrikus belépés nincs megfelelően beállítva."}, 503
+        return {"ceremony_id": ceremony_id, "publicKey": public_key}
+
+    @app.post("/api/passkeys/register/complete")
+    @login_required
+    def passkey_register_complete():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return {"error": "Hiányos passkey-regisztráció."}, 400
+        ceremony_id = payload.get("ceremony_id")
+        credential = payload.get("credential")
+        name = str(payload.get("name") or "Saját készülék").strip()[:80]
+        if not name:
+            name = "Saját készülék"
+        if not isinstance(ceremony_id, str) or not isinstance(credential, dict):
+            return {"error": "Hiányos passkey-regisztráció."}, 400
+
+        db = get_db()
+        challenge_row = consume_challenge(
+            db, ceremony_id=ceremony_id, purpose="REGISTER"
+        )
+        if challenge_row is None or challenge_row["user_id"] != g.user["id"]:
+            return {"error": "A passkey-regisztráció lejárt. Próbáld újra."}, 400
+        try:
+            verification = verify_registration(
+                origin=app.config["WEBAUTHN_ORIGIN"],
+                rp_id=app.config["WEBAUTHN_RP_ID"],
+                credential=credential,
+                challenge=challenge_row["challenge"],
+            )
+            response_data = credential.get("response")
+            transports = (
+                response_data.get("transports", [])
+                if isinstance(response_data, dict)
+                else []
+            )
+            if not isinstance(transports, list):
+                transports = []
+            add_passkey(
+                db,
+                user_id=g.user["id"],
+                name=name,
+                credential_id=verification.credential_id,
+                public_key=verification.credential_public_key,
+                sign_count=verification.sign_count,
+                transports=[str(item) for item in transports],
+                device_type=enum_value(verification.credential_device_type),
+                backed_up=verification.credential_backed_up,
+            )
+        except sqlite3.IntegrityError:
+            db.rollback()
+            return {"error": "Ez a passkey már hozzá van adva."}, 409
+        except (WebAuthnException, ValueError, TypeError) as exc:
+            current_app.logger.warning("Sikertelen passkey-regisztráció: %s", exc)
+            return {"error": "A passkey ellenőrzése nem sikerült."}, 400
+        return {"ok": True}
+
+    @app.post("/settings/passkeys/<int:passkey_id>/delete")
+    @login_required
+    def delete_passkey(passkey_id: int):
+        cursor = get_db().execute(
+            "DELETE FROM passkeys WHERE id = ? AND user_id = ?",
+            (passkey_id, g.user["id"]),
+        )
+        get_db().commit()
+        if cursor.rowcount:
+            flash("A passkey törölve.", "success")
+        else:
+            flash("A passkey nem található.", "error")
+        return redirect(url_for("change_password"))
 
     @app.get("/export.xlsx")
     @login_required
