@@ -13,6 +13,64 @@
     </label>
     <button class="button primary full" type="submit">Belépés</button>
   </form>
+  <div class="auth-divider"><span>vagy</span></div>
+  <button class="button soft full" type="button" data-passkey-login>
+    🔐 Belépés biometriával
+  </button>
+  <p class="field-hint passkey-hint">
+    Nem kell felhasználónevet vagy jelszót megadni. Előbb egyszer állíts be egy passkeyt a Fiók menüben.
+  </p>
+  <p class="passkey-status" role="status" aria-live="polite" data-passkey-status></p>
   <p class="auth-link">Nincs fiókod? <a href="{{ url_for('register') }}">Regisztráció</a></p>
 </section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='passkeys.js') }}"></script>
+<script>
+  (() => {
+    const button = document.querySelector('[data-passkey-login]');
+    const status = document.querySelector('[data-passkey-status]');
+    const setStatus = (message, error = false) => {
+      status.textContent = message;
+      status.classList.toggle('negative', error);
+    };
+    button.addEventListener('click', async () => {
+      if (!window.isSecureContext) {
+        setStatus('A biometrikus belépéshez HTTPS-kapcsolat szükséges.', true);
+        return;
+      }
+      if (!window.PublicKeyCredential || !navigator.credentials) {
+        setStatus('Ez a böngésző nem támogatja a biometrikus passkey belépést.', true);
+        return;
+      }
+      button.disabled = true;
+      setStatus('Biometrikus azonosítás indítása…');
+      try {
+        const optionsData = await window.passkeys.jsonResponse(await fetch(
+          {{ url_for('passkey_auth_options')|tojson }},
+          {method: 'POST', headers: {'Accept': 'application/json'}}
+        ));
+        const credential = await navigator.credentials.get({
+          publicKey: window.passkeys.parseRequestOptions(optionsData.publicKey),
+        });
+        const result = await window.passkeys.jsonResponse(await fetch(
+          {{ url_for('passkey_auth_complete')|tojson }},
+          {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+            body: JSON.stringify({
+              ceremony_id: optionsData.ceremony_id,
+              credential: window.passkeys.credentialToJSON(credential),
+            }),
+          }
+        ));
+        window.location.assign(result.redirect);
+      } catch (error) {
+        const cancelled = error && error.name === 'NotAllowedError';
+        setStatus(cancelled ? 'A biometrikus belépés megszakadt.' : error.message, true);
+        button.disabled = false;
+      }
+    });
+  })();
+</script>
 {% endblock %}
