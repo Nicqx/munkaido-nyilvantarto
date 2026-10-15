@@ -55,9 +55,36 @@ CREATE TABLE IF NOT EXISTS calendar_overrides (
     label TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS passkeys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    credential_id BLOB NOT NULL UNIQUE,
+    public_key BLOB NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    transports_json TEXT NOT NULL DEFAULT '[]',
+    device_type TEXT NOT NULL DEFAULT '',
+    backed_up INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS webauthn_challenges (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER,
+    purpose TEXT NOT NULL CHECK (purpose IN ('REGISTER', 'AUTH')),
+    challenge BLOB NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS app_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_entries_user_date ON work_entries(user_id, work_date);
+CREATE INDEX IF NOT EXISTS idx_passkeys_user ON passkeys(user_id);
+CREATE INDEX IF NOT EXISTS idx_challenges_expiry ON webauthn_challenges(expires_at);
