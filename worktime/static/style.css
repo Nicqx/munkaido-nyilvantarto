@@ -58,6 +58,17 @@ h2 { font-size: 1.25rem; }
 .schedule-card { width: min(780px, 100%); margin: 0 auto; }
 .auth-card h1, .narrow-card h1 { margin-bottom: 10px; }
 .auth-link { margin: 20px 0 0; text-align: center; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: var(--muted); font-size: .82rem; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.passkey-hint { margin: 10px 0 0; text-align: center; line-height: 1.5; }
+.passkey-status { min-height: 1.4em; margin: 10px 0 0; color: var(--green); font-size: .86rem; font-weight: 700; text-align: center; }
+.account-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: min(960px, 100%); margin: 4vh auto 0; align-items: start; }
+.account-settings h1, .account-settings h2 { margin-bottom: 10px; }
+.empty-passkeys { margin: 20px 0 0; padding: 13px; border-radius: 10px; color: var(--muted); background: #f6f8f9; text-align: center; }
+.passkey-list { list-style: none; margin: 20px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.passkey-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.passkey-list strong, .passkey-list span { display: block; }
+.passkey-list span { margin-top: 4px; color: var(--muted); font-size: .78rem; }
 
 .flash-stack { display: grid; gap: 8px; margin-bottom: 18px; }
 .flash { padding: 13px 16px; border-radius: 12px; border: 1px solid var(--line); background: white; }
@@ -192,6 +203,7 @@ tbody tr:hover { background: #f9fbfc; }
     flex-direction: column; align-items: stretch; gap: 0;
   }
   .nav.open { display: flex; }
+  .account-settings { grid-template-columns: 1fr; width: min(560px, 100%); }
   .nav a, .nav form { padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.12); }
 }
 
